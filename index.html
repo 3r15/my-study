@@ -109,6 +109,7 @@ th{background:var(--card2);color:var(--acc);}
 <button class="tab" data-p="dash">📊 취약점 대시보드</button>
 <button class="tab" data-p="gichul">📚 기출문제</button>
 <button class="tab" data-p="analysis">📈 기출분석</button>
+<button class="tab" data-p="practice">🧩 연습문제</button>
 </div>
 <div class="panel active" id="fc">
   <div class="filter" id="fcFilter"></div>
@@ -151,6 +152,15 @@ th{background:var(--card2);color:var(--acc);}
   <p style="margin-top:14px;"><button class="reset" id="resetAll">⚠ 모든 진도 초기화</button></p>
 </div>
 <div class="panel" id="analysis"><div id="anBody"></div></div>
+<div class="panel" id="practice">
+  <div class="summary" id="pracIntro"></div>
+  <div class="fcbar" style="flex-wrap:wrap">
+    <button class="btn good" id="pracNew">✨ 새 문제 10개 생성</button>
+    <button class="btn" id="pracWeak">🎯 약점 집중: <span id="pracWeakState">ON</span></button>
+  </div>
+  <div id="pracList"></div>
+  <div class="summary" id="pracLog" style="margin-top:16px"></div>
+</div>
 <div class="panel" id="gichul">
   <div class="filter" id="gxExam"></div>
   <div class="filter" id="gxSub"></div>
@@ -164,7 +174,7 @@ const GKEYS = Object.keys(DATA.subjects);
 function themeKeys(g){return Object.keys(DATA.themes).filter(function(k){return k.charAt(0)===g;});}
 const LS='jbcsai_all_v1';
 let store = JSON.parse(localStorage.getItem(LS) || '{}');
-store.cards = store.cards || {}; store.quiz = store.quiz || {}; store.ui = store.ui || {}; store.gichul = store.gichul || {};
+store.cards = store.cards || {}; store.quiz = store.quiz || {}; store.ui = store.ui || {}; store.gichul = store.gichul || {}; store.practice = store.practice || {stats:{},log:[]};
 function save(){localStorage.setItem(LS, JSON.stringify(store));}
 let gSel = store.ui.g || '1';
 let fcTheme='ALL', qTheme='ALL';
@@ -178,7 +188,7 @@ function renderGwa(){
   });
   document.getElementById('gwaname').textContent=DATA.subjects[gSel];
 }
-function refreshAll(){renderGwa();loadFc();renderQuiz();renderNotes();renderDash();renderAnalysis();}
+function refreshAll(){renderGwa();loadFc();renderQuiz();renderNotes();renderDash();renderAnalysis();renderPractice();}
 
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
@@ -187,6 +197,7 @@ document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   if(t.dataset.p==='dash') renderDash();
   if(t.dataset.p==='gichul') renderGichul();
   if(t.dataset.p==='analysis') renderAnalysis();
+  if(t.dataset.p==='practice') renderPractice();
 };});
 
 function buildFilter(el,onPick,active){
@@ -289,6 +300,8 @@ function renderDash(){
   renderWeakTopics();
 }
 document.getElementById('resetAll').onclick=function(){if(confirm('모든 과목의 학습 진도를 초기화할까요?')){store={cards:{},quiz:{},ui:{g:gSel},gichul:{}};save();refreshAll();if(document.getElementById('gichul').classList.contains('active'))renderGichul();}};
+document.getElementById('pracNew').onclick=function(){genPractice(10);};
+document.getElementById('pracWeak').onclick=function(){focusWeak=!focusWeak;var e=document.getElementById('pracWeakState');if(e)e.textContent=focusWeak?'ON':'OFF';};
 document.getElementById('ioExport').onclick=function(){
   const blob=new Blob([JSON.stringify(store)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -382,6 +395,67 @@ function gotoTheme(tk){
   var tb=document.querySelector('.tab[data-p="fc"]');if(tb)tb.classList.add('active');
   document.getElementById('fc').classList.add('active');
   renderGwa();loadFc();window.scrollTo(0,0);
+}
+var focusWeak=true, pracSubject=null, pracBatch=null;
+function shuf(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=(Math.random()*(i+1))|0;var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function mainDef(back){var line=String(back).split('\n')[0];return line.length>140?line.slice(0,140)+'…':line;}
+function themeWeight(k){var s=(store.practice.stats||{})[k];if(!s||(s.c+s.w)===0)return 2;var rate=s.c/(s.c+s.w);return 1+(1-rate)*4;}
+function renderPractice(){
+  if(pracSubject!==gSel){pracSubject=gSel;var pl=document.getElementById('pracList');if(pl)pl.innerHTML='';pracBatch=null;}
+  var intro=document.getElementById('pracIntro');
+  if(intro)intro.innerHTML='<div style="font-weight:700;margin-bottom:4px">🧩 '+DATA.subjects[gSel]+' 연습문제</div><div style="font-size:.84rem;color:var(--mut)">요약집 193개 항목을 바탕으로 새 문제를 자동 생성해 풉니다. 결과는 주제별로 기록되어 <b>약점 집중</b>이 켜져 있으면 다음 생성 때 많이 틀린 주제가 더 자주 출제됩니다. (기출문제와 분리된 공간)</div>';
+  var ws=document.getElementById('pracWeakState');if(ws)ws.textContent=focusWeak?'ON':'OFF';
+  renderPracLog();
+}
+function renderPracLog(){
+  var el=document.getElementById('pracLog');if(!el)return;
+  var st=store.practice.stats||{},log=store.practice.log||[];
+  var rows=themeKeys(gSel).map(function(k){var s=st[k]||{c:0,w:0};var tot=s.c+s.w;return {k:k,tot:tot,rate:tot?Math.round(s.c/tot*100):null};}).filter(function(r){return r.tot>0;});
+  var h='<div style="font-weight:700;margin-bottom:6px">📊 연습 기록 (과목 '+gSel+')</div>';
+  if(!rows.length){h+='<div style="font-size:.84rem;color:var(--mut)">아직 기록이 없습니다. 새 문제를 풀면 주제별 정답률이 쌓이고, 약점이 자동 반영됩니다.</div>';}
+  else{
+    rows.sort(function(a,b){return a.rate-b.rate;});
+    h+='<div style="font-size:.82rem;color:var(--mut);margin-bottom:6px">주제별 정답률 (낮은 순 · 약점 우선 출제 대상)</div>';
+    rows.forEach(function(r){var col=r.rate>=80?'var(--good)':r.rate>=50?'var(--warn)':'var(--bad)';h+='<div style="display:flex;gap:8px;margin-bottom:4px"><span style="flex:1;font-size:.84rem">'+r.k.substr(1)+'. '+DATA.themes[r.k]+'</span><span style="color:'+col+';font-weight:700">'+r.rate+'%</span><span style="color:var(--mut);font-size:.78rem">('+r.tot+'문항)</span></div>';});
+  }
+  var mine=(log||[]).filter(function(x){return x.g===gSel;}).slice(-5).reverse();
+  if(mine.length){h+='<div style="margin-top:10px;font-size:.82rem;color:var(--mut)">최근 세션</div>';mine.forEach(function(x){h+='<div style="font-size:.82rem">· '+esc(x.t)+' — '+x.correct+'/'+x.total+' 정답'+(x.weak&&x.weak.length?' · 약점: '+esc(x.weak.join(', ')):'')+'</div>';});}
+  el.innerHTML=h;
+}
+function genPractice(n){
+  var pool=DATA.cards.filter(function(c){return c.g===gSel;});
+  if(!pool.length)return;
+  var chosen=[],used={},att=0;
+  while(chosen.length<n&&att<n*30){att++;var c;
+    if(focusWeak){var tot=0,wl=pool.map(function(x){var w=themeWeight(x.th);tot+=w;return w;});var r=Math.random()*tot,acc=0,idx=0;for(var i=0;i<pool.length;i++){acc+=wl[i];if(r<=acc){idx=i;break;}}c=pool[idx];}
+    else{c=pool[(Math.random()*pool.length)|0];}
+    if(used[c.num])continue;used[c.num]=1;chosen.push(c);
+  }
+  pracBatch={total:chosen.length,answered:0,correct:0};
+  var wrap=document.getElementById('pracList');wrap.innerHTML='';
+  chosen.forEach(function(c,qi){
+    var others=pool.filter(function(x){return x.num!==c.num;});
+    var type=Math.random()<0.5?'A':'B';var stem,options,ansText;
+    if(type==='A'){stem='다음 설명에 해당하는 것은?\n\n'+c.back;var ds=shuf(others).slice(0,3).map(function(x){return x.title;});options=shuf([c.title].concat(ds));ansText=c.title;}
+    else{stem='「'+c.title+'」에 대한 설명으로 옳은 것은?';var d2=shuf(others).slice(0,3).map(function(x){return mainDef(x.back);});options=shuf([mainDef(c.back)].concat(d2));ansText=mainDef(c.back);}
+    var d=document.createElement('div');d.className='q-item';
+    var inner='<span class="q-type">'+c.th.substr(1)+'. '+DATA.themes[c.th]+' · 문제 '+(qi+1)+'/'+chosen.length+'</span><div class="q-text">'+esc(stem)+'</div>';
+    inner+='<div>'+options.map(function(o){return '<button class="opt" data-v="'+esc(o)+'">'+esc(o)+'</button>';}).join('')+'</div>';
+    inner+='<div class="exp">📖 정답: <b>'+esc(ansText)+'</b><br><span style="color:var(--mut)">['+String(c.num).padStart(3,'0')+'] '+esc(c.title)+'</span><br>'+esc(c.back)+'</div>';
+    d.innerHTML=inner;var exp=d.querySelector('.exp');var done=false;
+    d.querySelectorAll('.opt').forEach(function(b){b.onclick=function(){
+      if(done)return;done=true;var ok=b.dataset.v===ansText;exp.classList.add('show');
+      d.querySelectorAll('.opt').forEach(function(x){if(x.dataset.v===ansText)x.classList.add('correct');else if(x===b&&!ok)x.classList.add('wrong');x.disabled=true;});
+      var st=store.practice.stats;var k=c.th;if(!st[k])st[k]={c:0,w:0};if(ok)st[k].c++;else st[k].w++;
+      pracBatch.answered++;if(ok)pracBatch.correct++;save();
+      if(pracBatch.answered===pracBatch.total){
+        var weak=themeKeys(gSel).map(function(kk){var ss=st[kk];return ss&&(ss.c+ss.w)?{k:kk,rate:ss.c/(ss.c+ss.w)}:null;}).filter(Boolean).sort(function(a,b){return a.rate-b.rate;}).slice(0,3).map(function(x){return x.k.substr(1)+'.'+DATA.themes[x.k];});
+        var nw=new Date();var ts=nw.getFullYear()+'-'+('0'+(nw.getMonth()+1)).slice(-2)+'-'+('0'+nw.getDate()).slice(-2)+' '+('0'+nw.getHours()).slice(-2)+':'+('0'+nw.getMinutes()).slice(-2);
+        store.practice.log.push({t:ts,g:gSel,total:pracBatch.total,correct:pracBatch.correct,weak:weak});save();renderPracLog();
+      }
+    };});
+    wrap.appendChild(d);
+  });
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');}
 refreshAll();
