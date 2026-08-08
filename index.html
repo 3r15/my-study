@@ -36,7 +36,7 @@ header{position:sticky;top:0;z-index:50;background:rgba(15,23,42,.94);backdrop-f
 
 /* bottom nav */
 nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(15,23,42,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
-nav .in{max-width:840px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
+nav .in{max-width:840px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
 nav a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 0 8px;color:var(--tx3);font-size:11px;font-weight:600}
 nav a.on{color:var(--ac)}
 nav a i{font-style:normal;font-size:19px;line-height:1}
@@ -128,6 +128,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
   <a href="#/exams"    data-tab="exams"><i>✎</i>기출문제</a>
   <a href="#/summary"  data-tab="summary"><i>▤</i>핵심요약</a>
   <a href="#/analysis" data-tab="analysis"><i>◈</i>오답분석</a>
+  <a href="#/notes"    data-tab="notes"><i>✦</i>학습노트</a>
 </div></nav>
 <div class="toast" id="toast"></div>
 
@@ -136,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -280,7 +281,7 @@ function route(){
      ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')));
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,settings:vSettings}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -619,12 +620,172 @@ async function vAnalysis(){
       <div class="small" style="white-space:pre-wrap;margin-top:3px">${esc(S.notes[id])}</div>
       <button class="btn sm gh" style="margin-top:6px" onclick="jumpQ('${id}')">문제 보기</button></div>`).join('')}`:''}
 
+  <h2 class="sec">모르는 개념 정리</h2>
+  <div class="card tight small muted">위 취약 개념을 요약 정리·관련 용어·내 오답과 묶어 <b>학습노트</b>로 저장할 수 있습니다.</div>
+  <button class="btn pri" style="width:100%;padding:12px" onclick="go('#/notes')">오답 학습노트 만들기 →</button>
+
   <h2 class="sec">문제 생성</h2>
   <div class="grid2">
     <button class="btn pri" onclick="go('#/play?mode=weak&n=20')">취약 개념 기출 재출제</button>
     <button class="btn" onclick="go('#/gen')">요약집 기반 자동 생성</button>
   </div>
   <div style="height:24px"></div>`;
+}
+
+/* ══════════════════════════════════════════════════════════
+   10-b. 오답 학습노트  ★ 3번 영역 ★
+   오답 분석 데이터(취약 개념 · 내 오답 이력)를 바탕으로
+   "내가 모르는 개념"을 정리한 학습 데이터를 만들어 저장한다.
+     · genStudyNotes(min)  취약 개념별로 노트를 생성/갱신 → S.studyNotes에 저장
+     · buildStudyNote(no)  요약 불릿 + 관련 용어 + 내 오답을 한 개념으로 묶음
+     · vNotes()            저장된 노트를 보고 복습 체크·직접 정리·내보내기
+   S.studyNotes[secNo] = {no,title,unit,subjectNo,score,bullets,terms,
+                          wrongs,note,reviewed,createdAt,updatedAt}
+   ══════════════════════════════════════════════════════════ */
+// 이 개념(secNo)과 얽혀 틀린 문제들을 모은다.
+//  misread = 내가 이 개념이라고 착각해 고른 오답 / missed = 정답이 이 개념인데 놓침 / topic = 문항 주제
+function relWrongs(secNo){
+  const out=[];
+  Object.entries(S.answers).forEach(([qid,a])=>{
+    if(a.ok)return;
+    const q=D.qById[qid]; if(!q)return;
+    const sel=a.sel;
+    const selRefs=sel&&q.options[sel-1]?(q.options[sel-1].refs||[]):[];
+    const ansRefs=q.options[q.answer-1]?(q.options[q.answer-1].refs||[]):[];
+    const asMisread=selRefs.indexOf(secNo)>=0;
+    const asMissed=!isNeg(q)&&ansRefs.indexOf(secNo)>=0;
+    const asTopic=(q.refs||[]).slice(0,1).indexOf(secNo)>=0;
+    if(asMisread||asMissed||asTopic)
+      out.push({qid,sel,answer:q.answer,
+        myText:sel&&q.options[sel-1]?q.options[sel-1].text:'모르겠음',
+        ansText:q.options[q.answer-1]?q.options[q.answer-1].text:'',
+        kind:asMisread?'misread':(asMissed?'missed':'topic')});
+  });
+  return out;
+}
+// 한 개념의 학습 재료(요약 불릿 + 관련 용어 + 내 오답)를 조립한다.
+function buildStudyNote(secNo){
+  const sec=D.sec[secNo]; if(!sec)return null;
+  const bullets=(sec.body||[]).filter(b=>b.type==='text'&&b.text&&b.text.trim().length>1)
+    .map(b=>b.text.trim());
+  const terms=(D.gloss||[]).filter(t=>t.sec===secNo).map(t=>({term:t.term,desc:t.desc}));
+  return {no:secNo,title:sec.title,unit:sec.unit,subjectNo:sec.subjectNo,
+    bullets,terms,wrongs:relWrongs(secNo)};
+}
+// 취약 점수 min 이상인 개념들로 노트를 생성/갱신. 복습 상태와 직접 쓴 정리는 보존한다.
+async function genStudyNotes(min){
+  const wrongIds=Object.entries(S.answers).filter(([,a])=>!a.ok).map(([id])=>id);
+  await Promise.all([...new Set(wrongIds.map(i=>i.slice(0,6)))].map(getExam));
+  await needGloss();
+  const w=weakList(min);
+  let n=0;
+  w.forEach(x=>{
+    const b=buildStudyNote(x.no); if(!b)return;
+    const prev=S.studyNotes[x.no];
+    S.studyNotes[x.no]={
+      createdAt:prev?prev.createdAt:Date.now(),
+      reviewed:prev?prev.reviewed:false,
+      note:prev?prev.note:(S.secNotes[x.no]||''),
+      no:x.no,title:b.title,unit:b.unit,subjectNo:b.subjectNo,score:x.v,
+      bullets:b.bullets,terms:b.terms,wrongs:b.wrongs,updatedAt:Date.now()
+    };
+    n++;
+  });
+  save();
+  return n;
+}
+let NF={only:false,min:3};
+async function vNotes(){
+  if(!D.gloss)await needGloss();
+  const wrongIds=Object.entries(S.answers).filter(([,a])=>!a.ok).map(([id])=>id);
+  await Promise.all([...new Set(wrongIds.map(i=>i.slice(0,6)))].map(getExam));
+  const all=Object.values(S.studyNotes).sort((a,b)=>(b.score||0)-(a.score||0));
+  const revN=all.filter(n=>n.reviewed).length;
+  const weakN=weakList(NF.min).length;
+  const list=NF.only?all.filter(n=>!n.reviewed):all;
+  const kindLabel={misread:'착각',missed:'놓침',topic:'주제'};
+  app().innerHTML=`
+  <h2 class="sec">오답 학습노트</h2>
+  <div class="card small muted">오답 분석에서 잡힌 <b>취약 개념</b>을 요약집 정리·관련 용어·내 오답과 함께
+  하나의 학습 노트로 만들어 <b>여기에 모아 저장</b>합니다. 복습하며 체크하고, 직접 정리를 덧붙일 수 있습니다.</div>
+
+  <h2 class="sec">노트 만들기</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px">취약 점수 기준 이상인 개념으로 노트를 생성/갱신합니다.
+    (기존 노트의 복습 상태와 직접 쓴 정리는 유지됩니다)</div>
+    <div class="pill">${[2,3,5].map(m=>`<button class="${NF.min===m?'on':''}" onclick="NF.min=${m};vNotes()">${m}점 이상 (${weakList(m).length})</button>`).join('')}</div>
+    <button class="btn pri" style="width:100%;margin-top:10px;padding:12px" onclick="doGenNotes()">
+      ${weakN?`취약 개념 ${weakN}개로 노트 생성 / 갱신`:'취약 개념 기록이 없습니다'}</button>
+  </div>
+
+  ${all.length?`
+  <h2 class="sec">저장된 노트 (${all.length}) · 복습 완료 ${revN}</h2>
+  <div class="row" style="gap:8px;align-items:center;margin:2px 0 4px">
+    <div class="pill" style="flex:1">
+      <button class="${!NF.only?'on':''}" onclick="NF.only=false;vNotes()">전체 ${all.length}</button>
+      <button class="${NF.only?'on':''}" onclick="NF.only=true;vNotes()">미복습 ${all.length-revN}</button>
+    </div>
+    <button class="btn sm gh" onclick="copyNotes()">📋 노트 복사</button>
+  </div>
+  ${list.map(n=>`
+    <div class="card tight" style="${n.reviewed?'opacity:.62':''}">
+      <div class="row" style="align-items:flex-start">
+        <span class="chip ${n.score>=6?'no':''}">${n.score||0}</span>
+        <div style="flex:1;min-width:0">
+          <b style="font-size:14.5px">${esc(n.title)}</b>
+          <div class="tiny muted" style="margin-top:2px">${n.subjectNo}과목 · ${esc(n.unit)}</div>
+        </div>
+        <button class="btn sm ${n.reviewed?'pri':'gh'}" onclick="toggleReviewed(${n.no})">${n.reviewed?'✔ 복습완료':'복습 체크'}</button>
+      </div>
+      ${n.bullets.length?`<div class="small" style="margin-top:9px"><b class="muted">📖 개념 정리</b>
+        <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.bullets.slice(0,8).map(b=>`<li>${esc(b)}</li>`).join('')}</ul></div>`:''}
+      ${n.terms.length?`<div class="small" style="margin-top:9px"><b class="muted">🔑 관련 용어</b>
+        ${n.terms.slice(0,6).map(t=>`<div class="tiny" style="margin-top:3px"><b>${esc(t.term)}</b> — <span class="muted">${esc(t.desc)}</span></div>`).join('')}</div>`:''}
+      ${n.wrongs.length?`<div class="small" style="margin-top:9px"><b class="muted">✗ 내가 틀린 문제 (${n.wrongs.length})</b>
+        ${n.wrongs.slice(0,5).map(w=>`<div class="tiny muted" style="margin-top:4px">
+          <span class="chip no" style="padding:1px 6px">${kindLabel[w.kind]}</span>
+          ${esc(w.qid)} — 나 <b style="color:var(--no)">${w.sel?CIRC[w.sel-1]:'?'}</b>
+          → 정답 <b style="color:var(--ok)">${CIRC[w.answer-1]} ${esc((w.ansText||'').slice(0,34))}</b>
+          <a href="#" onclick="jumpQ('${w.qid}');return false" style="color:var(--ac)">보기</a></div>`).join('')}</div>`:''}
+      <div class="small" style="margin-top:10px"><b class="muted">✎ 내 정리</b>
+        <textarea id="nn${n.no}" style="margin-top:5px" placeholder="이 개념을 내 말로 정리해두세요">${esc(n.note||'')}</textarea>
+        <div class="row" style="gap:6px;margin-top:6px">
+          <button class="btn sm" onclick="saveNoteText(${n.no})">저장</button>
+          <a class="btn sm gh" href="#/sec?no=${n.no}">요약 보기</a>
+          <button class="btn sm gh" onclick="go('#/play?mode=sec&no=${n.no}')">이 개념 문제 풀기</button>
+          <div style="flex:1"></div>
+          <button class="btn sm gh" style="color:var(--no)" onclick="delNote(${n.no})">삭제</button>
+        </div>
+      </div>
+    </div>`).join('')||'<div class="empty">해당하는 노트가 없습니다.</div>'}`
+  :`<div class="empty" style="margin-top:8px">아직 저장된 학습노트가 없습니다.<br>
+    먼저 기출을 풀어 오답을 쌓은 뒤 위에서 노트를 생성하세요.</div>`}
+  <div style="height:24px"></div>`;
+}
+async function doGenNotes(){
+  const n=await genStudyNotes(NF.min);
+  toast(n?`${n}개 개념을 학습노트에 저장했습니다`:'생성할 취약 개념이 없습니다');
+  vNotes();
+}
+function toggleReviewed(no){const n=S.studyNotes[no];if(!n)return;n.reviewed=!n.reviewed;n.updatedAt=Date.now();save();vNotes()}
+function saveNoteText(no){const n=S.studyNotes[no];if(!n)return;const el=document.getElementById('nn'+no);
+  n.note=el.value.trim();n.updatedAt=Date.now();save();toast('정리를 저장했습니다')}
+function delNote(no){if(!confirm('이 학습노트를 삭제할까요?'))return;delete S.studyNotes[no];save();vNotes()}
+function notesMarkdown(){
+  return Object.values(S.studyNotes).sort((a,b)=>(b.score||0)-(a.score||0)).map(n=>{
+    let s=`## ${n.title}  (${n.subjectNo}과목 · ${n.unit}) — 취약 ${n.score||0}점${n.reviewed?' ✔복습완료':''}\n\n`;
+    if(n.bullets&&n.bullets.length)s+='### 개념 정리\n'+n.bullets.map(b=>'- '+b).join('\n')+'\n\n';
+    if(n.terms&&n.terms.length)s+='### 관련 용어\n'+n.terms.map(t=>`- **${t.term}**: ${t.desc}`).join('\n')+'\n\n';
+    if(n.wrongs&&n.wrongs.length)s+='### 내가 틀린 문제\n'+n.wrongs.map(w=>`- ${w.qid}: 내 답 ${w.sel?CIRC[w.sel-1]:'모르겠음'} → 정답 ${CIRC[w.answer-1]} ${w.ansText||''}`).join('\n')+'\n\n';
+    if(n.note)s+='### 내 정리\n'+n.note+'\n\n';
+    return s;
+  }).join('\n---\n\n');
+}
+function copyNotes(){
+  const md=notesMarkdown();
+  if(!md){toast('저장된 노트가 없습니다');return}
+  navigator.clipboard.writeText(md).then(()=>toast('노트를 마크다운으로 복사했습니다')).catch(()=>{
+    const t=document.createElement('textarea');t.value=md;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('노트를 마크다운으로 복사했습니다')});
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -818,7 +979,7 @@ function vSettings(){
   <h2 class="sec">데이터</h2>
   <div class="card tight small muted">모든 기록은 이 브라우저에만 저장됩니다.
     기기를 옮기거나 초기화 전에 반드시 백업하세요.<br>
-    푼 문제 ${st.n} · 메모 ${Object.keys(S.notes).length} · 취약 개념 ${weakList(1).length} · 학습완료 ${Object.keys(S.secRead).length}</div>
+    푼 문제 ${st.n} · 메모 ${Object.keys(S.notes).length} · 취약 개념 ${weakList(1).length} · 학습노트 ${Object.keys(S.studyNotes).length} · 학습완료 ${Object.keys(S.secRead).length}</div>
   <div class="grid2">
     <button class="btn" onclick="expData()">백업 내보내기</button>
     <button class="btn" onclick="impData()">백업 불러오기</button>
