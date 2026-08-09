@@ -681,7 +681,7 @@ function notePrompt(min){
     return `- ${id}: 나 ${my} → 정답 ${ans}`;
   }).join('\n')||'- (없음)';
   const memos=Object.entries(S.notes).slice(-10).map(([id,t])=>`- ${id}: ${t}`).join('\n')||'- (없음)';
-  return `너는 정보처리산업기사 필기 학습 코치다. 아래 취약 개념들을 학습자가 한눈에 이해할 수 있는 간결한 학습노트로 정리하라. (아래 '최근 틀린 문제'는 어떤 개념을 헷갈리는지 파악하는 참고용일 뿐, 노트에 "무엇을 틀렸다"는 식으로 쓰지 말 것)
+  return `너는 정보처리산업기사 필기 학습 코치다. 아래 취약 개념들을 학습자가 한눈에 이해할 수 있는 간결한 학습노트로 정리하라. (아래 '최근 틀린 문제'는 이 학습자가 무엇을 헷갈리는지 파악하는 근거로 쓴다)
 
 [취약 개념  (sec = 개념 번호, 그대로 되돌려줄 것 / 점수 높을수록 취약)]
 ${concepts}
@@ -699,12 +699,14 @@ ${memos}
    - concept  : 핵심 개념을 짧게 1~3문장으로 (군더더기 없이)
    - memorize : 꼭 외워야 할 내용 — 짧은 항목 배열 (정의·공식·키워드·분류 등)
    - compare  : 헷갈리기 쉬운 개념끼리의 비교 — "A vs B: 차이" 형태 배열 (없으면 [])
+   - myConfusion : 위 '참고: 최근 틀린 문제'를 근거로, 이 학습자가 헷갈린 부분을 1~2문장으로 아주 간단히 요약 (해당 없으면 "")
    - extra    : 학습에 도움되는 그 외 내용 — 필요할 때만 짧은 항목 배열 (없으면 [])
+   ※ concept/memorize/compare 는 반드시 채운다(빈 값 금지). 특히 concept 는 절대 비우지 말 것.
 3. sec는 위에서 준 숫자를 그대로 되돌려준다.
 4. 결과를 아래 형식의 JSON 배열로 만들고, "study-notes.json" 이라는 이름의
    내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만 파일에 담을 것)
 
-[{"sec":${w[0].no},"title":"${esc(w[0].sec.title)}","concept":"...","memorize":["...","..."],"compare":["A vs B: ..."],"extra":[]}]`;
+[{"sec":${w[0].no},"title":"${esc(w[0].sec.title)}","concept":"...","memorize":["...","..."],"compare":["A vs B: ..."],"myConfusion":"...","extra":[]}]`;
 }
 // 프롬프트 복사 — 오답 문항 텍스트가 필요하므로 회차 데이터를 먼저 받아둔다.
 async function copyNotePrompt(){
@@ -717,40 +719,45 @@ async function copyNotePrompt(){
 }
 // 값을 문자열 배열로 정규화 (문자열이면 한 항목으로 감싼다)
 const toArr=v=>Array.isArray(v)?v.map(z=>String(z)).filter(z=>z.trim()):(v?[String(v)]:[]);
-// 파싱된 노트 배열을 S.studyNotes에 저장. 복습 상태·직접 쓴 정리는 보존한다.
-// 새 필드: concept/memorize/compare/extra  (구 필드 summary/keyPoints/confuse/mnemonic 은 하위호환 매핑)
-function applyNotes(arr){
-  let n=0;
-  arr.forEach((x,i)=>{
-    if(!x||typeof x!=='object')return;
-    const sec=+x.sec||0;
-    const meta=sec&&D.sec[sec]?D.sec[sec]:null;
-    const key=sec?String(sec):'ai'+Date.now()+i;
-    const prev=S.studyNotes[key];
-    const memorize=toArr(x.memorize).length?toArr(x.memorize):toArr(x.keyPoints);
-    const compare=toArr(x.compare).length?toArr(x.compare):toArr(x.confuse);
-    const extra=toArr(x.extra).length?toArr(x.extra):toArr(x.mnemonic);
-    S.studyNotes[key]={
-      createdAt:prev?prev.createdAt:Date.now(),
-      reviewed:prev?prev.reviewed:false,
-      note:prev?prev.note:(sec?(S.secNotes[sec]||''):''),
-      // 암기·테스트는 별도 파일에서 붙으므로 재불러오기 시 보존
-      mustMemorize:prev?prev.mustMemorize:undefined,
-      quiz:prev?prev.quiz:undefined,
-      no:key, sec:sec||null, source:'ai',
-      title:x.title||(meta?meta.title:'AI 학습노트'),
-      unit:meta?meta.unit:(x.unit||''),
-      subjectNo:meta?meta.subjectNo:(x.subjectNo||''),
-      score:sec?(S.weak[sec]||0):0,
-      concept:x.concept||x.summary||'',
-      memorize, compare, extra,
-      wrongs:sec?relWrongs(sec):[],
-      updatedAt:Date.now()
-    };
-    n++;
-  });
-  return n;
+// AI가 만든 한 항목(x)을 기존 노트에 '병합'한다. 핵심: 값이 없는 필드는
+// 기존 값을 그대로 두어, 빈/부분 업로드가 이미 저장된 내용을 지우지 않게 한다.
+// 학습노트 필드(concept/memorize/compare/myConfusion/extra)와
+// 암기·테스트 필드(mustMemorize/quiz)를 한 파일이든 두 파일이든 모두 수용한다.
+function mergeNote(x){
+  if(!x||typeof x!=='object')return false;
+  const sec=+x.sec||0;
+  const meta=sec&&D.sec[sec]?D.sec[sec]:null;
+  const key=sec?String(sec):('ai'+Date.now()+Math.floor(Math.random()*1e4));
+  const prev=S.studyNotes[key]||null;
+  const arrOr=(nv,ov)=>{const a=toArr(nv);return a.length?a:(ov||[])};
+  const strOr=(nv,ov)=>{const s=(nv==null?'':String(nv)).trim();return s||ov||''};
+  const memNv=toArr(x.memorize).length?x.memorize:x.keyPoints;   // 구 필드 하위호환
+  const extNv=toArr(x.extra).length?x.extra:x.mnemonic;
+  const n=S.studyNotes[key]={
+    no:key, sec:sec||(prev?prev.sec:null), source:'ai',
+    createdAt:prev?prev.createdAt:Date.now(),
+    reviewed:prev?prev.reviewed:false,
+    note:prev?prev.note:(sec?(S.secNotes[sec]||''):''),
+    title:x.title||(prev?prev.title:'')||(meta?meta.title:'AI 학습노트'),
+    unit:meta?meta.unit:(prev?prev.unit:(x.unit||'')),
+    subjectNo:meta?meta.subjectNo:(prev?prev.subjectNo:(x.subjectNo||'')),
+    score:sec?(S.weak[sec]||0):(prev?prev.score:0),
+    concept:strOr(x.concept||x.summary, prev&&prev.concept),
+    memorize:arrOr(memNv, prev&&prev.memorize),
+    compare:arrOr(x.compare, prev&&prev.compare),
+    myConfusion:strOr(x.myConfusion||x.confuse, prev&&prev.myConfusion),
+    extra:arrOr(extNv, prev&&prev.extra),
+    wrongs:sec?relWrongs(sec):(prev?prev.wrongs:[]),
+    updatedAt:Date.now()
+  };
+  // 암기·테스트: 있으면 갱신, 없으면 기존 값 유지
+  if(Array.isArray(x.mustMemorize))n.mustMemorize=x.mustMemorize.map(String);
+  else if(prev&&prev.mustMemorize)n.mustMemorize=prev.mustMemorize;
+  if(x.quiz!==undefined){const q=validQuiz(x.quiz);n.quiz=q.length?q:((prev&&prev.quiz)||q)}
+  else if(prev&&prev.quiz)n.quiz=prev.quiz;
+  return true;
 }
+function applyNotes(arr){let n=0;arr.forEach(x=>{if(mergeNote(x))n++});return n;}
 // AI가 만든 학습노트 JSON '파일'을 업로드해 불러온다.
 // (AI에게 .json 파일로 내려받게 한 뒤 그 파일을 그대로 올리면 됨)
 function importNotes(){
@@ -825,26 +832,11 @@ function importReview(){
     const r=new FileReader();
     r.onload=()=>{
       let data; try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
-      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.review)?data.review:(data&&Array.isArray(data.items)?data.items:null));
+      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.review)?data.review
+        :(data&&Array.isArray(data.items)?data.items:(data&&Array.isArray(data.notes)?data.notes:null)));
       if(!arr){alert('암기·테스트 JSON 배열을 찾을 수 없습니다');return}
-      let cnt=0;
-      arr.forEach(x=>{
-        if(!x||typeof x!=='object')return;
-        const sec=+x.sec||0; if(!sec)return;
-        const key=String(sec);
-        let n=S.studyNotes[key];
-        if(!n){ // 노트가 없으면 최소 노트를 만들어 담는다
-          const meta=D.sec[sec];
-          n=S.studyNotes[key]={createdAt:Date.now(),reviewed:false,note:S.secNotes[sec]||'',
-            no:key,sec:sec,source:'ai',title:meta?meta.title:'AI 학습노트',
-            unit:meta?meta.unit:'',subjectNo:meta?meta.subjectNo:'',score:S.weak[sec]||0,
-            summary:'',keyPoints:[],confuse:'',mnemonic:'',wrongs:relWrongs(sec)};
-        }
-        n.mustMemorize=Array.isArray(x.mustMemorize)?x.mustMemorize.map(String):(n.mustMemorize||[]);
-        n.quiz=validQuiz(x.quiz);
-        n.updatedAt=Date.now();
-        cnt++;
-      });
+      // mergeNote는 기존 학습노트 내용을 지우지 않고 mustMemorize/quiz만 덧붙인다
+      let cnt=0; arr.forEach(x=>{if(mergeNote(x))cnt++});
       if(!cnt){alert('불러올 항목이 없습니다');return}
       save(); toast(`${cnt}개 개념에 암기·테스트를 추가했습니다`); vNotes();
     };
@@ -929,12 +921,15 @@ async function vNotes(){
         </div>
         <button class="btn sm ${n.reviewed?'pri':'gh'}" onclick="toggleReviewed('${n.no}')">${n.reviewed?'✔ 복습완료':'복습 체크'}</button>
       </div>
+      ${!(n.concept||(n.memorize&&n.memorize.length)||(n.compare&&n.compare.length)||(n.extra&&n.extra.length)||n.myConfusion||(n.mustMemorize&&n.mustMemorize.length)||(n.quiz&&n.quiz.length)||n.summary||(n.keyPoints&&n.keyPoints.length)||n.confuse||(n.bullets&&n.bullets.length))?`<div class="tiny" style="margin-top:9px;color:var(--wn)">⚠ 학습 내용이 비어 있습니다. 위에서 <b>프롬프트를 복사</b>해 다시 생성한 뒤 파일을 업로드하세요.</div>`:''}
       ${n.concept?`<div class="small" style="margin-top:9px"><b class="muted">💡 핵심 개념</b>
         <div style="margin-top:4px;line-height:1.65;white-space:pre-wrap">${esc(n.concept)}</div></div>`:''}
       ${n.memorize&&n.memorize.length?`<div class="small" style="margin-top:9px"><b class="muted">✦ 외울 내용</b>
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.memorize.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
       ${n.compare&&n.compare.length?`<div class="small" style="margin-top:9px"><b class="muted">⚖ 헷갈리는 개념 비교</b>
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.compare.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
+      ${n.myConfusion?`<div class="small" style="margin-top:9px"><b class="muted">🤔 내가 헷갈린 부분</b>
+        <div style="margin-top:4px;line-height:1.6;white-space:pre-wrap">${esc(n.myConfusion)}</div></div>`:''}
       ${n.extra&&n.extra.length?`<div class="small" style="margin-top:9px"><b class="muted">➕ 그 외</b>
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.extra.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
       ${n.summary?`<div class="small" style="margin-top:9px"><b class="muted">📖 개념 정리</b>
@@ -982,6 +977,7 @@ function notesMarkdown(){
     if(n.concept)s+='### 핵심 개념\n'+n.concept+'\n\n';
     if(n.memorize&&n.memorize.length)s+='### 외울 내용\n'+n.memorize.map(k=>'- '+k).join('\n')+'\n\n';
     if(n.compare&&n.compare.length)s+='### 헷갈리는 개념 비교\n'+n.compare.map(k=>'- '+k).join('\n')+'\n\n';
+    if(n.myConfusion)s+='### 내가 헷갈린 부분\n'+n.myConfusion+'\n\n';
     if(n.extra&&n.extra.length)s+='### 그 외\n'+n.extra.map(k=>'- '+k).join('\n')+'\n\n';
     if(n.summary)s+='### 개념 정리\n'+n.summary+'\n\n';
     if(n.keyPoints&&n.keyPoints.length)s+='### 핵심 포인트\n'+n.keyPoints.map(k=>'- '+k).join('\n')+'\n\n';
