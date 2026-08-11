@@ -137,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -879,74 +879,92 @@ function memItems(){
   });
   return out;
 }
-// 요약집 원본(summary.json)에서 암기용 빈칸 문제를 만든다.
-//  · 패턴1 이름↔설명 : "이름 : 설명"에서 이름을 가림
-//  · 패턴2 순서       : "A → B → C …"에서 한 항목을 가림
-//  · 패턴3 분류→나열  : "분류 : a, b, c …"에서 한 항목을 가림
-// 코드·계산 예제·숫자 나열·표/이미지 전용 항목은 자동으로 걸러진다.
-function sumClozeItems(){
-  if(!D.summary)return [];
-  const out=[], seen=new Set();
+// 요약집 원문을 AI에게 줄 다이제스트로 압축한다. ([번호] 제목: 내용 | 내용 …)
+function memDigest(subj){
+  if(!D.summary)return '';
   const clean=t=>String(t==null?'':t).replace(/\s+/g,' ').trim();
-  const dig=t=>((t.match(/[0-9]/g)||[]).length)/Math.max(1,t.length);
-  const isEx=t=>/^(\d+\s*회전|초기\s*상태|예제|\d+단계|\d+[.)]\s|\[예|이동\s*순서|①|㉠)/.test(t);
-  const add=(sec,src,cue,answer,full,pattern,label)=>{
-    answer=clean(answer); cue=clean(cue); full=clean(full);
-    if(answer.length<2||answer.length>28||cue.indexOf('____')<0)return;
-    const k=pattern+'|'+full.replace(/\s+/g,'')+'|'+answer.replace(/\s+/g,'');
-    if(seen.has(k))return; seen.add(k);
-    out.push({text:full,src,sec,cloze:{cue,answer,full,label:label||'',pattern}});
-  };
+  const lines=[];
   D.summary.forEach(s=>{
-    if((s.body||[]).some(b=>b.type==='code'))return;           // 코드 항목 제외
-    const title=s.title;
+    if(subj&&s.subjectNo!==subj)return;
+    if((s.body||[]).some(b=>b.type==='code'))return;   // 코드 항목 제외
     const bl=(s.body||[]).filter(b=>b.type==='text'&&b.bullet).map(b=>clean(b.text));
-    const tx=(s.body||[]).filter(b=>b.type==='text').map(b=>clean(b.text));
-    // 패턴2: 순서 (→ 우선, 그다음 < ; 각 조각이 짧고 숫자가 아닐 때만)
-    tx.forEach(t=>{
-      if(isEx(t)||dig(t)>0.35)return;
-      let sep=null;
-      if(t.indexOf('→')>=0||t.indexOf('->')>=0)sep=/\s*(?:→|->)\s*/;
-      else if((t.indexOf('<')>=0||t.indexOf('＜')>=0)&&t.indexOf('>')<0&&/응집도|결합도|약함|낮음|순서|우선/.test(t))sep=/\s*[<＜]\s*/;
-      if(!sep)return;
-      if(/이고|일\s*때|경우|만족|의미|반복|수행|나타낸|따른다/.test(t))return;   // 설명 문장(A→B이고…) 제외
-      const core=clean(t.split(/[:：]/).pop());
-      const parts=core.split(sep).map(clean).filter(Boolean);
-      if(parts.length<3||parts.length>9)return;
-      if(parts.some(p=>p.length>16)||parts.some(p=>dig(p)>0.5))return;      // 산문 꼬리·숫자 시퀀스 제외
-      if(parts.some(p=>/(다|음|함|됨)\.?$/.test(p)))return;                 // 문장으로 끝나는 조각 제외
-      const idx=Math.floor(Math.random()*parts.length);
-      const answer=parts[idx];
-      const head=/[:：]/.test(t)?clean(t.split(/[:：]/)[0])+' : ':'';
-      add(s.no,title,head+parts.map((p,i)=>i===idx?'____':p).join(' → '),answer,t,2,title);
-    });
-    // 패턴1/3: "이름 : 내용" 불릿
-    bl.forEach(t=>{
-      if(isEx(t)||dig(t)>0.4)return;
-      const m=t.match(/^([^:：]{1,32})[:：]\s*(.+)$/);
-      if(!m)return;
-      const name=clean(m[1]), rest=clean(m[2]);
-      if(name.length<2||name.length>28||rest.length<3)return;
-      const items=rest.split(/[,，/·]|\s등\b/).map(x=>x.replace(/[.\s등및]+$/,'').replace(/^[.\s]+/,'').trim()).filter(Boolean);
-      const isList=items.length>=2&&items.every(i=>i.length>=1&&i.length<=16)&&(items.reduce((a,b)=>a+b.length,0)/items.length)<=12;
-      if(isList){   // 패턴3: 나열 중 하나 가리기
-        const idx=Math.floor(Math.random()*items.length);
-        add(s.no,title,name+' : '+items.map((it,i)=>i===idx?'____':it).join(', '),items[idx],t,3,name);
-      }else if(rest.length>=6&&rest.length<=120){   // 패턴1: 설명 주고 이름 가리기
-        add(s.no,title,'____ : '+rest,name,t,1,title);
-      }
-    });
+    const tx=(s.body||[]).filter(b=>b.type==='text'&&!b.bullet).map(b=>clean(b.text));
+    const body=(bl.length?bl:tx).filter(b=>b.length>=6).slice(0,8);
+    if(!body.length)return;
+    lines.push(`[${s.no}] ${s.title}: ${body.join(' | ')}`);
   });
-  return out;
+  return lines.join('\n');
 }
-let MTscope='all';   // 'summary' | 'notes' | 'all'
+// AI에게 줄 '암기 빈칸 문제 생성' 프롬프트
+function memPrompt(subj){
+  const dig=memDigest(subj);
+  if(!dig)return '';
+  return `너는 정보처리산업기사 필기 암기 문제 출제자다. 아래 [요약집]의 내용만을 근거로, 핵심을 외웠는지 확인하는 '빈칸 채우기' 암기 문제를 만들어라.
+
+[요약집]  (형식: [번호] 제목: 내용 | 내용 | …)
+${dig}
+
+[문제 형식]  각 문제는 한 곳만 "____"(밑줄 4개)로 가린다. answer는 그 빈칸에 들어갈 짧은 정답이다. 아래 3가지 형태만 쓴다.
+1) 이름 맞히기 : 설명을 주고 이름을 가림 → "____ : (설명)"   (※ 이름을 주고 설명을 쓰게 하지 말 것)
+2) 순서       : "A → B → ____ → D" 처럼 순서 항목 하나를 가림
+3) 분류→나열  : "분류 : a, ____, c" 처럼 나열 항목 하나를 가림
+
+[규칙]
+- 코드·SQL·프로그래밍 문법·계산/예제(회전·이동순서 등)·표/그림 설명 문제는 만들지 말 것.
+- cue에는 "____"를 정확히 한 개만 포함한다. answer는 30자 이내의 짧은 정답.
+- sec에는 위 [번호]를 그대로 넣는다.
+- 아래 형식의 JSON 배열만 "memcards.json" 파일로 출력한다(설명 문장 없이).
+
+[{"sec":4,"cue":"____ : 한 개의 CPU로 여러 개의 프로그램을 동시에 처리하는 방식","answer":"다중 프로그래밍 시스템"}]`;
+}
+function copyMemPrompt(){
+  const p=memPrompt(MB.subj);
+  if(!p){toast('요약 데이터가 아직 준비되지 않았습니다');return}
+  navigator.clipboard.writeText(p).then(()=>toast('암기 문제 프롬프트를 복사했습니다')).catch(()=>{
+    const t=document.createElement('textarea');t.value=p;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('암기 문제 프롬프트를 복사했습니다')});
+}
+// AI가 만든 memcards.json을 업로드해 문제 은행(S.memBank)에 합친다.
+function importMemBank(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f)return; const r=new FileReader();
+    r.onload=()=>{
+      let data; try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
+      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.cards)?data.cards:(data&&Array.isArray(data.items)?data.items:null));
+      if(!arr){alert('문제 JSON 배열을 찾을 수 없습니다');return}
+      const seen=new Set((S.memBank||[]).map(x=>(x.cue+'|'+x.answer).replace(/\s+/g,'')));
+      let n=0;
+      arr.forEach(x=>{
+        if(!x||typeof x!=='object')return;
+        let cue=String(x.cue||'').trim(), answer=String(x.answer||'').trim();
+        cue=cue.replace(/[_＿]{2,}|\(\s*\)|□|◯|〇/g,'____');   // 다양한 빈칸 표기 정규화
+        if(cue.indexOf('____')<0||answer.length<1||answer.length>30)return;
+        const key=(cue+'|'+answer).replace(/\s+/g,''); if(seen.has(key))return; seen.add(key);
+        const sec=+x.sec||0, meta=sec&&D.sec[sec]?D.sec[sec]:null;
+        S.memBank.push({cue,answer,sec:sec||0,src:meta?meta.title:(x.src||''),full:cue.replace('____',answer)});
+        n++;
+      });
+      if(!n){alert('불러올 문제가 없습니다');return}
+      save(); toast(`${n}개 암기 문제를 추가했습니다`); MTscope='ai'; vMemTest();
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function clearMemBank(){if(!confirm('저장된 AI 암기 문제를 모두 지울까요?'))return;S.memBank=[];save();vMemTest()}
+// 문제 은행 항목을 플레이어용 형태로 변환
+function memBankItems(){
+  return (S.memBank||[]).map(x=>({text:x.full||x.cue,src:x.src||(x.sec&&D.sec[x.sec]?D.sec[x.sec].title:''),sec:x.sec||0,origin:'ai',
+    cloze:{cue:x.cue,answer:x.answer,full:x.full||x.cue.replace('____',x.answer),label:x.src||''}}));
+}
+let MTscope='all', MB={subj:0};   // MTscope: 'ai' | 'notes' | 'all'  /  MB.subj: 0=전체,1~3=과목
 // 범위에 맞는 최종 문제 풀(각 항목에 cloze 포함)을 만든다.
 function buildMemPool(scope){
   const notes=memItems().map(it=>Object.assign({},it,{cloze:makeCloze(it.text),origin:'note'}));
-  const sums=sumClozeItems().map(it=>Object.assign({},it,{origin:'summary'}));
+  const ai=memBankItems();
   if(scope==='notes')return notes;
-  if(scope==='summary')return sums;
-  return notes.concat(sums);
+  if(scope==='ai')return ai;
+  return ai.concat(notes);
 }
 // 한 항목을 빈칸 문제로 만든다.
 //  · "라벨: 내용" 이면 라벨(주제)은 남기고 내용 안에서만 빈칸을 낸다
@@ -989,22 +1007,34 @@ function simRatio(a,b){
 }
 function vMemTest(){
   if(M.items)return drawMem();
-  const nN=memItems().length, sN=sumClozeItems().length, aN=nN+sN;
-  const cnt={summary:sN,notes:nN,all:aN}[MTscope];
+  const aiN=(S.memBank||[]).length, nN=memItems().length, aN=aiN+nN;
+  const cnt={ai:aiN,notes:nN,all:aN}[MTscope];
   app().innerHTML=`
   <h2 class="sec">암기 빈칸 테스트</h2>
-  <div class="card small muted"><b>요약집 원본</b>과 학습노트의 <b>외울 내용·반드시 암기</b> 항목을 모아,
+  <div class="card small muted"><b>AI가 만든 암기 문제</b>와 학습노트의 <b>외울 내용·반드시 암기</b>를 모아,
   일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다.</div>
+
+  <h2 class="sec">AI로 암기 문제 만들기</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px"><b>프롬프트 복사</b> → <b>Claude·ChatGPT</b>에 붙여넣기 →
+    받은 <b>memcards.json 파일 업로드</b>. 요약집 내용을 기반으로 빈칸 문제를 만듭니다. 과목별로 나눠 만들 수 있습니다.</div>
+    <div class="tiny muted" style="margin:2px 0 4px">프롬프트 범위</div>
+    <div class="pill">${[[0,'전체'],[1,'1과목'],[2,'2과목'],[3,'3과목']].map(([v,l])=>`<button class="${MB.subj===v?'on':''}" onclick="MB.subj=${v};vMemTest()">${l}</button>`).join('')}</div>
+    <div class="grid2" style="margin-top:10px">
+      <button class="btn pri" onclick="copyMemPrompt()">프롬프트 복사</button>
+      <button class="btn" onclick="importMemBank()">memcards.json 업로드</button>
+    </div>
+    ${aiN?`<button class="btn gh sm" style="width:100%;margin-top:8px;color:var(--no)" onclick="clearMemBank()">저장된 AI 문제 ${aiN}개 초기화</button>`:''}
+  </div>
+
   <h2 class="sec">출제 범위</h2>
   <div class="pill">
     <button class="${MTscope==='all'?'on':''}" onclick="MTscope='all';vMemTest()">전체 (${aN})</button>
-    <button class="${MTscope==='summary'?'on':''}" onclick="MTscope='summary';vMemTest()">요약집 (${sN})</button>
+    <button class="${MTscope==='ai'?'on':''}" onclick="MTscope='ai';vMemTest()">AI 문제 (${aiN})</button>
     <button class="${MTscope==='notes'?'on':''}" onclick="MTscope='notes';vMemTest()">내 노트 (${nN})</button>
   </div>
-  <div class="card tight small muted" style="margin-top:6px">요약집 문제는 <b>이름↔설명 / 순서 / 분류→나열</b> 3가지 형태로,
-  요약집 원문을 기반으로 자동 생성됩니다. (코드·계산·표 항목은 제외)</div>
   ${cnt?`<button class="btn pri" style="width:100%;padding:13px;margin-top:12px" onclick="startMemTest()">시작하기 (${cnt}문항)</button>`
-    :`<div class="empty" style="margin-top:10px">이 범위에 문제가 없습니다.<br>${MTscope==='notes'?'학습노트에서 외울 내용·반드시 암기를 먼저 만들어 주세요.':'다른 범위를 선택해 주세요.'}</div>`}
+    :`<div class="empty" style="margin-top:10px">이 범위에 문제가 없습니다.<br>위에서 <b>AI로 암기 문제를 만들어</b> 업로드하거나 다른 범위를 선택하세요.</div>`}
   <div style="height:24px"></div>`;
 }
 function startMemTest(){
@@ -1138,7 +1168,7 @@ async function vNotes(){
 
   <h2 class="sec">암기 빈칸 테스트</h2>
   <div class="card tight">
-    <div class="small muted" style="margin-bottom:8px"><b>요약집 원본</b>과 노트의 <b>외울 내용·반드시 암기</b> 항목을 모아,
+    <div class="small muted" style="margin-bottom:8px"><b>AI가 만든 암기 문제</b>와 노트의 <b>외울 내용·반드시 암기</b>를 모아,
     일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다. ${memN?`(내 노트 ${memN}개 포함)`:''}</div>
     <button class="btn pri" style="width:100%" onclick="go('#/memtest')">🖊 암기 빈칸 테스트 시작</button>
   </div>
