@@ -669,11 +669,17 @@ function relWrongs(secNo){
   });
   return out;
 }
-// 취약 개념 + 최근 오답 + 메모를 담아 AI에게 줄 프롬프트를 만든다.
+// 취약 개념 + 요약집 원문 + 최근 오답 + 메모를 담아 AI에게 줄 프롬프트를 만든다.
 function notePrompt(min){
   const w=weakList(min).slice(0,15);
   if(!w.length)return '';
-  const concepts=w.map(x=>`- sec=${x.no} | ${x.sec.subjectNo}과목 / ${x.sec.unit} / ${x.sec.title} (${x.v}점)`).join('\n');
+  const clean=t=>String(t==null?'':t).replace(/\s+/g,' ').trim();
+  const concepts=w.map(x=>{
+    const s=D.sec[x.no];
+    const body=(s&&s.body||[]).filter(b=>b.type==='text').map(b=>clean(b.text)).filter(b=>b.length>=4).slice(0,10);
+    return `### sec=${x.no} | ${x.sec.subjectNo}과목 / ${x.sec.unit} / ${x.sec.title} (취약 ${x.v}점)
+요약집 내용: ${body.join(' | ')||'(요약 텍스트 없음)'}`;
+  }).join('\n\n');
   const wrongs=Object.entries(S.answers).filter(([,a])=>!a.ok).slice(-25).map(([id,a])=>{
     const q=D.qById[id];
     if(!q)return `- ${id}`;
@@ -682,9 +688,9 @@ function notePrompt(min){
     return `- ${id}: 나 ${my} → 정답 ${ans}`;
   }).join('\n')||'- (없음)';
   const memos=Object.entries(S.notes).slice(-10).map(([id,t])=>`- ${id}: ${t}`).join('\n')||'- (없음)';
-  return `너는 정보처리산업기사 필기 학습 코치다. 아래 취약 개념들을 학습자가 한눈에 이해할 수 있는 간결한 학습노트로 정리하라. (아래 '최근 틀린 문제'는 이 학습자가 무엇을 헷갈리는지 파악하는 근거로 쓴다)
+  return `너는 정보처리산업기사 필기 학습 코치다. 아래 [취약 개념과 요약집 내용]에 있는 내용을 학습자가 한눈에 학습·암기할 수 있는 노트로 정리하라.
 
-[취약 개념  (sec = 개념 번호, 그대로 되돌려줄 것 / 점수 높을수록 취약)]
+[취약 개념과 요약집 내용]  (sec = 개념 번호, 그대로 되돌려줄 것)
 ${concepts}
 
 [참고: 최근 틀린 문제  (내가 고른 답 → 정답)]
@@ -694,20 +700,18 @@ ${wrongs}
 ${memos}
 
 [요구사항]
-1. 위 취약 개념(sec)마다 학습노트 1개를 만든다.
-2. 핵심만 간결하게. "시험에 이런 게 나온다", "이걸 외우면 맞힌다" 같은 서술은 넣지 말 것.
-   각 노트는 다음 필드만 채운다.
-   - concept  : 핵심 개념을 짧게 1~3문장으로 (군더더기 없이)
-   - memorize : 꼭 외워야 할 내용 — 짧은 항목 배열 (정의·공식·키워드·분류 등)
-   - compare  : 헷갈리기 쉬운 개념끼리의 비교 — "A vs B: 차이" 형태 배열 (없으면 [])
-   - myConfusion : 위 '참고: 최근 틀린 문제'를 근거로, 이 학습자가 헷갈린 부분을 1~2문장으로 아주 간단히 요약 (해당 없으면 "")
-   - extra    : 학습에 도움되는 그 외 내용 — 필요할 때만 짧은 항목 배열 (없으면 [])
-   ※ concept/memorize/compare 는 반드시 채운다(빈 값 금지). 특히 concept 는 절대 비우지 말 것.
-3. sec는 위에서 준 숫자를 그대로 되돌려준다.
-4. 결과를 아래 형식의 JSON 배열로 만들고, "study-notes.json" 이라는 이름의
-   내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만 파일에 담을 것)
+1. 각 개념(sec)마다 노트 1개. 반드시 위 '요약집 내용'에 있는 것으로 학습·암기하도록 만들고, 요약집에 없는 내용을 새로 지어내지 말 것.
+2. 각 노트의 필드:
+   - concept  : 요약집 내용을 바탕으로 핵심 개념을 짧게 1~3문장 (필수, 비우지 말 것)
+   - memorize : 요약집에서 꼭 외워야 할 항목 배열 — 정의·공식·키워드·분류·순서 (필수)
+   - compare  : 요약집 안에서 헷갈리기 쉬운 개념끼리의 비교 — "A vs B: 차이" 형태 배열 (없으면 [])
+   - explain  : '추가 설명'. 요약집 내용만으로 이해가 부족하여, 설명을 덧붙이는 것이 학습에 실제로 도움이 된다고 판단될 때에만 짧게 덧붙인다. 도움이 안 되면 반드시 "" (빈 문자열).
+   - myConfusion : '내가 헷갈린 부분에 대한 설명'. 위 '최근 틀린 문제'를 근거로, 그 헷갈림을 풀어주는 설명이 학습에 도움이 될 때에만 1~2문장으로 덧붙인다. 도움이 안 되거나 근거가 없으면 반드시 "".
+3. explain 과 myConfusion 은 억지로 채우지 말 것 — 학습에 도움이 될 때만 넣고, 아니면 빈 문자열로 둔다.
+4. sec는 위에서 준 숫자를 그대로 되돌려준다.
+5. 결과를 아래 형식의 JSON 배열로 만들고, "study-notes.json" 이라는 이름의 내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만)
 
-[{"sec":${w[0].no},"title":"${esc(w[0].sec.title)}","concept":"...","memorize":["...","..."],"compare":["A vs B: ..."],"myConfusion":"...","extra":[]}]`;
+[{"sec":${w[0].no},"title":"${esc(w[0].sec.title)}","concept":"...","memorize":["...","..."],"compare":["A vs B: ..."],"explain":"","myConfusion":""}]`;
 }
 // 프롬프트 복사 — 오답 문항 텍스트가 필요하므로 회차 데이터를 먼저 받아둔다.
 async function copyNotePrompt(){
@@ -746,6 +750,7 @@ function mergeNote(x){
     concept:strOr(x.concept||x.summary, prev&&prev.concept),
     memorize:arrOr(memNv, prev&&prev.memorize),
     compare:arrOr(x.compare, prev&&prev.compare),
+    explain:strOr(x.explain, prev&&prev.explain),
     myConfusion:strOr(x.myConfusion||x.confuse, prev&&prev.myConfusion),
     extra:arrOr(extNv, prev&&prev.extra),
     wrongs:sec?relWrongs(sec):(prev?prev.wrongs:[]),
@@ -1199,10 +1204,18 @@ async function vNotes(){
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.memorize.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
       ${n.compare&&n.compare.length?`<div class="small" style="margin-top:9px"><b class="muted">⚖ 헷갈리는 개념 비교</b>
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.compare.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
-      ${n.myConfusion?`<div class="small" style="margin-top:9px"><b class="muted">🤔 내가 헷갈린 부분</b>
-        <div style="margin-top:4px;line-height:1.6;white-space:pre-wrap">${esc(n.myConfusion)}</div></div>`:''}
-      ${n.extra&&n.extra.length?`<div class="small" style="margin-top:9px"><b class="muted">➕ 그 외</b>
-        <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.extra.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
+      ${(n.explain||n.myConfusion||(n.extra&&n.extra.length))?`
+      <details class="sm" style="margin-top:10px">
+        <summary>💬 자세한 설명 (눌러서 열기)</summary>
+        <div style="margin-top:6px">
+          ${n.explain?`<div class="small" style="margin-top:6px"><b class="muted">💡 추가 설명</b>
+            <div style="margin-top:4px;line-height:1.65;white-space:pre-wrap">${esc(n.explain)}</div></div>`:''}
+          ${n.myConfusion?`<div class="small" style="margin-top:8px"><b class="muted">🤔 내가 헷갈린 부분</b>
+            <div style="margin-top:4px;line-height:1.6;white-space:pre-wrap">${esc(n.myConfusion)}</div></div>`:''}
+          ${n.extra&&n.extra.length?`<div class="small" style="margin-top:8px"><b class="muted">➕ 그 외</b>
+            <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.extra.map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>`:''}
+        </div>
+      </details>`:''}
       ${n.summary?`<div class="small" style="margin-top:9px"><b class="muted">📖 개념 정리</b>
         <div style="margin-top:4px;line-height:1.65;white-space:pre-wrap">${esc(n.summary)}</div></div>`:''}
       ${n.keyPoints&&n.keyPoints.length?`<div class="small" style="margin-top:9px"><b class="muted">✦ 핵심 포인트</b>
@@ -1248,6 +1261,7 @@ function notesMarkdown(){
     if(n.concept)s+='### 핵심 개념\n'+n.concept+'\n\n';
     if(n.memorize&&n.memorize.length)s+='### 외울 내용\n'+n.memorize.map(k=>'- '+k).join('\n')+'\n\n';
     if(n.compare&&n.compare.length)s+='### 헷갈리는 개념 비교\n'+n.compare.map(k=>'- '+k).join('\n')+'\n\n';
+    if(n.explain)s+='### 추가 설명\n'+n.explain+'\n\n';
     if(n.myConfusion)s+='### 내가 헷갈린 부분\n'+n.myConfusion+'\n\n';
     if(n.extra&&n.extra.length)s+='### 그 외\n'+n.extra.map(k=>'- '+k).join('\n')+'\n\n';
     if(n.summary)s+='### 개념 정리\n'+n.summary+'\n\n';
