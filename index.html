@@ -278,10 +278,11 @@ function route(){
   const h=location.hash||'#/home', p=h.split('?')[0].split('/')[1]||'home', a=qs(h);
   document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',
      x.dataset.tab===p||(p==='play'&&x.dataset.tab==='exams')||(p==='sec'&&x.dataset.tab==='summary')
-     ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')));
+     ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
+     ||(p==='memtest'&&x.dataset.tab==='notes')));
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,notes:vNotes,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,memtest:vMemTest,settings:vSettings}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -859,6 +860,124 @@ function startAllQuiz(){
   if(!items.length){toast('테스트 문제가 없습니다. 먼저 암기·테스트를 생성하세요');return}
   G.items=shuffle(items);G.i=0;G.ans={};go('#/gen');
 }
+
+/* ══════════════════════════════════════════════════════════
+   10-c. 암기 빈칸 테스트
+   학습노트의 '외울 내용(memorize)'·'반드시 암기(mustMemorize)' 항목을
+   모아 일부를 빈칸으로 만들고, 직접 타이핑해 정답과 비교한다.
+   ══════════════════════════════════════════════════════════ */
+let M={items:null,i:0,res:{}};
+// 모든 노트에서 암기 항목을 모은다 (중복 제거)
+function memItems(){
+  const out=[], seen=new Set();
+  Object.values(S.studyNotes).forEach(n=>{
+    const add=t=>{const s=String(t==null?'':t).trim(); if(s.length<4)return;
+      const k=s.replace(/\s+/g,''); if(seen.has(k))return; seen.add(k);
+      out.push({text:s,src:n.title||'',sec:n.sec||0})};
+    (n.memorize||[]).forEach(add);
+    (n.mustMemorize||[]).forEach(add);
+  });
+  return out;
+}
+// 한 항목을 빈칸 문제로: 구분자로 나눠 가장 긴 조각을 ____ 로 가린다.
+function makeCloze(text){
+  // 목록 구분자(슬래시·쉼표·세미콜론)를 화살표보다 먼저 시도한다.
+  // (화살표는 'IP→MAC'처럼 내용의 일부인 경우가 많아 뒤로 미룬다)
+  const seps=['/','；',';','，',',','→','->'];
+  for(const sep of seps){
+    if(text.indexOf(sep)<0)continue;
+    const raw=text.split(sep);
+    const parts=raw.map(s=>s.trim()).filter(Boolean);
+    if(parts.length<2)continue;
+    // 가장 긴(=의미 있는) 조각을 빈칸으로
+    let bi=0; raw.forEach((p,i)=>{if(p.trim().length>raw[bi].trim().length)bi=i});
+    const ans=raw[bi].trim(); if(ans.length<2)continue;
+    const cue=raw.map((p,i)=>i===bi?p.replace(p.trim(),'____'):p).join(sep);
+    return {cue,answer:ans,full:text};
+  }
+  // 구분자가 없으면 전체 입력 (앞 2글자만 힌트)
+  return {cue:text.slice(0,2)+'… ____ (전체 입력)',answer:text,full:text};
+}
+// 채점용 정규화: 공백·구두점 제거 + 소문자
+function normA(s){return String(s==null?'':s).replace(/\s+/g,'').replace(/[·.,()\[\]{}'"`~\-_/:=→]/g,'').toLowerCase()}
+// 간단 문자 유사도(0~1)
+function simRatio(a,b){
+  a=normA(a); b=normA(b); if(!a&&!b)return 1; if(!a||!b)return 0;
+  const bc=b.split(''), used=new Array(bc.length).fill(false); let hit=0;
+  for(const ch of a){const j=bc.findIndex((c,k)=>!used[k]&&c===ch); if(j>=0){used[j]=true;hit++}}
+  return hit/Math.max(a.length,b.length);
+}
+function vMemTest(){
+  if(M.items)return drawMem();
+  const items=memItems();
+  app().innerHTML=`
+  <h2 class="sec">암기 빈칸 테스트</h2>
+  <div class="card small muted">학습노트의 <b>외울 내용</b>과 <b>반드시 암기</b> 항목을 모아,
+  일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다.</div>
+  ${items.length?`<div class="card tight"><b>${items.length}개</b> 암기 항목이 모였습니다.
+    <div class="tiny muted" style="margin-top:4px">각 항목의 한 부분이 빈칸으로 나옵니다. 순서는 매번 섞입니다.</div></div>
+    <button class="btn pri" style="width:100%;padding:13px;margin-top:10px" onclick="startMemTest()">시작하기</button>`
+    :`<div class="empty">모을 암기 항목이 없습니다.<br>먼저 학습노트에서 <b>외울 내용</b>이나 <b>반드시 암기</b>를 만들어 주세요.</div>`}
+  <div style="height:24px"></div>`;
+}
+function startMemTest(){
+  const items=memItems(); if(!items.length){toast('암기 항목이 없습니다');return}
+  M.items=shuffle(items.map(it=>Object.assign({},it,{cloze:makeCloze(it.text)})));
+  M.i=0; M.res={}; drawMem();
+}
+function drawMem(){
+  const it=M.items[M.i], r=M.res[M.i];
+  const ht=document.getElementById('hTitle'); if(ht)ht.textContent='암기 빈칸 테스트';
+  app().innerHTML=`
+  <div class="row" style="margin:12px 0 4px">
+    <span class="tiny muted">${M.i+1} / ${M.items.length}</span>
+    <div class="bar" style="flex:1"><i style="width:${(M.i+1)/M.items.length*100}%"></i></div>
+    <button class="btn sm gh" onclick="M.items=null;go('#/notes')">나가기</button>
+  </div>
+  <div class="card">
+    <div class="qhd"><span class="chip">암기</span>${it.sec?`<span class="chip">${esc(secTitle(it.sec))}</span>`:''}</div>
+    <div class="stem"><p style="white-space:pre-wrap;line-height:1.75">${esc(it.cloze.cue)}</p></div>
+    <textarea id="memIn" style="margin-top:8px" placeholder="빈칸에 들어갈 내용을 입력하세요" ${r?'disabled':''}>${r?esc(r.typed):''}</textarea>
+    ${!r?`<button class="btn pri" style="width:100%;margin-top:8px" onclick="checkMem()">확인</button>`
+      :`<div class="fb ${r.ok?'ok':'no'}" style="margin-top:8px">
+        <b>${r.ok?'✔ 정답':'✘ 다시 확인'}</b>${r.ok?'':` · 일치율 ${Math.round(r.sim*100)}%`}
+        <div class="small" style="margin-top:6px">정답 &nbsp;<b style="color:var(--ok)">${esc(it.cloze.answer)}</b></div>
+        ${r.ok?'':`<div class="small" style="margin-top:3px">입력 &nbsp;<span style="color:var(--no)">${esc(r.typed||'(빈칸)')}</span></div>
+        <button class="btn sm" style="margin-top:8px" onclick="acceptMem()">맞게 외웠음으로 처리</button>`}
+        <div class="tiny muted" style="margin-top:8px">전체 · ${esc(it.cloze.full)}</div>
+      </div>`}
+  </div>
+  <div style="height:70px"></div>
+  <div class="sticky-bot"><div class="wrap row">
+    <button class="btn" onclick="memMv(-1)" ${M.i?'':'disabled'}>‹ 이전</button><div style="flex:1"></div>
+    <button class="btn ${r?'pri':''}" onclick="memMv(1)">${M.i===M.items.length-1?'끝내기':'다음 ›'}</button>
+  </div></div>`;
+  if(!r){const el=document.getElementById('memIn'); if(el){el.focus();
+    el.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')checkMem()}}}
+}
+function checkMem(){
+  const el=document.getElementById('memIn'); if(!el)return;
+  const v=el.value.trim(), it=M.items[M.i];
+  const ok=v.length>0&&normA(v)===normA(it.cloze.answer);
+  M.res[M.i]={typed:v,ok,sim:simRatio(v,it.cloze.answer)};
+  drawMem();
+}
+function acceptMem(){if(M.res[M.i]){M.res[M.i].ok=true;drawMem()}}
+function memMv(d){
+  if(M.i+d>=M.items.length){
+    const ok=Object.values(M.res).filter(x=>x.ok).length, tot=Object.keys(M.res).length;
+    M.items=null;
+    app().innerHTML=`<h2 class="sec">암기 테스트 결과</h2>
+      <div class="grid3"><div class="kpi"><div class="v">${tot}</div><div class="k">푼 항목</div></div>
+      <div class="kpi"><div class="v" style="color:var(--ok)">${ok}</div><div class="k">맞음</div></div>
+      <div class="kpi"><div class="v">${tot?Math.round(ok/tot*100):0}%</div><div class="k">정답률</div></div></div>
+      <div class="grid2" style="margin-top:14px"><button class="btn" onclick="startMemTest()">다시 풀기</button>
+      <button class="btn pri" onclick="go('#/notes')">학습노트로</button></div>
+      <div style="height:24px"></div>`;
+    return;
+  }
+  M.i=Math.max(0,M.i+d); drawMem();
+}
 let NF={only:false,min:3};
 async function vNotes(){
   if(!D.gloss)await needGloss();
@@ -867,6 +986,7 @@ async function vNotes(){
   const all=Object.values(S.studyNotes).sort((a,b)=>(b.score||0)-(a.score||0));
   const revN=all.filter(n=>n.reviewed).length;
   const quizN=all.filter(n=>n.quiz&&n.quiz.length).length;
+  const memN=memItems().length;
   const weakN=weakList(NF.min).length;
   const list=NF.only?all.filter(n=>!n.reviewed):all;
   const kindLabel={misread:'착각',missed:'놓침',topic:'주제'};
@@ -900,6 +1020,14 @@ async function vNotes(){
       <button class="btn" onclick="importReview()">④ review-pack.json 업로드</button>
     </div>
     ${quizN?`<button class="btn" style="width:100%;margin-top:8px" onclick="startAllQuiz()">🧪 저장된 테스트 전체 풀기 (${quizN}개 개념)</button>`:''}
+  </div>`:''}
+
+  ${memN?`
+  <h2 class="sec">암기 빈칸 테스트</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px">노트의 <b>외울 내용·반드시 암기</b> 항목(${memN}개)을 모아,
+    일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다.</div>
+    <button class="btn pri" style="width:100%" onclick="go('#/memtest')">🖊 암기 빈칸 테스트 시작</button>
   </div>`:''}
 
   ${all.length?`
