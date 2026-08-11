@@ -109,7 +109,7 @@ table.qt tr:first-child td{background:var(--card2);font-weight:700}
 .kpi .v{font-size:22px;font-weight:800;letter-spacing:-.5px}
 .kpi .k{font-size:11px;color:var(--tx3);margin-top:2px}
 details.sm summary{cursor:pointer;font-size:12.5px;color:var(--tx2);padding:4px 0}
-.sticky-bot{position:fixed;left:0;right:0;bottom:56px;z-index:40;background:rgba(15,23,42,.97);border-top:1px solid var(--line);padding:9px 0}
+.sticky-bot{position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));z-index:40;background:rgba(15,23,42,.97);border-top:1px solid var(--line);padding:9px 0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:#233a63;color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;z-index:99;opacity:0;transition:.25s;pointer-events:none}
 .toast.on{opacity:1}
 mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
@@ -879,24 +879,34 @@ function memItems(){
   });
   return out;
 }
-// 한 항목을 빈칸 문제로: 구분자로 나눠 가장 긴 조각을 ____ 로 가린다.
-function makeCloze(text){
-  // 목록 구분자(슬래시·쉼표·세미콜론)를 화살표보다 먼저 시도한다.
-  // (화살표는 'IP→MAC'처럼 내용의 일부인 경우가 많아 뒤로 미룬다)
-  const seps=['/','；',';','，',',','→','->'];
-  for(const sep of seps){
-    if(text.indexOf(sep)<0)continue;
-    const raw=text.split(sep);
+// 한 항목을 빈칸 문제로 만든다.
+//  · "라벨: 내용" 이면 라벨(주제)은 남기고 내용 안에서만 빈칸을 낸다
+//  · 목록 구분자(슬래시·쉼표)를 먼저, 화살표('IP→MAC'처럼 내용일 수 있음)는 뒤에 시도
+//  · 가장 긴(=의미 있는) 조각을 ____ 로 가린다
+function clozeSplit(str,list){
+  for(const sep of list){
+    if(str.indexOf(sep)<0)continue;
+    const raw=str.split(sep);
     const parts=raw.map(s=>s.trim()).filter(Boolean);
     if(parts.length<2)continue;
-    // 가장 긴(=의미 있는) 조각을 빈칸으로
     let bi=0; raw.forEach((p,i)=>{if(p.trim().length>raw[bi].trim().length)bi=i});
     const ans=raw[bi].trim(); if(ans.length<2)continue;
-    const cue=raw.map((p,i)=>i===bi?p.replace(p.trim(),'____'):p).join(sep);
-    return {cue,answer:ans,full:text};
+    return {cue:raw.map((p,i)=>i===bi?p.replace(p.trim(),'____'):p).join(sep),answer:ans};
   }
-  // 구분자가 없으면 전체 입력 (앞 2글자만 힌트)
-  return {cue:text.slice(0,2)+'… ____ (전체 입력)',answer:text,full:text};
+  return null;
+}
+function makeCloze(text){
+  let label='', body=text;
+  const idx=(()=>{const a=[text.indexOf(':'),text.indexOf('：')].filter(x=>x>0);return a.length?Math.min(...a):-1})();
+  if(idx>0&&idx<text.length-1){
+    const l=text.slice(0,idx).trim();
+    if(l.length<=22){label=l; body=text.slice(idx+1).trim()}  // 짧은 라벨만 주제로 인정
+  }
+  const r=clozeSplit(body,['/','；',';','，',','])||clozeSplit(body,['→','->']);
+  if(r)return {cue:(label?label+': ':'')+r.cue, answer:r.answer, full:text, label};
+  // 목록 구분자가 없으면: 라벨이 있으면 라벨을 힌트로 본문 전체를 답으로
+  if(label)return {cue:label+': ____', answer:body, full:text, label};
+  return {cue:text.slice(0,2)+'… ____ (전체 입력)', answer:text, full:text, label:''};
 }
 // 채점용 정규화: 공백·구두점 제거 + 소문자
 function normA(s){return String(s==null?'':s).replace(/\s+/g,'').replace(/[·.,()\[\]{}'"`~\-_/:=→]/g,'').toLowerCase()}
@@ -935,17 +945,22 @@ function drawMem(){
     <button class="btn sm gh" onclick="M.items=null;go('#/notes')">나가기</button>
   </div>
   <div class="card">
-    <div class="qhd"><span class="chip">암기</span>${it.sec?`<span class="chip">${esc(secTitle(it.sec))}</span>`:''}</div>
-    <div class="stem"><p style="white-space:pre-wrap;line-height:1.75">${esc(it.cloze.cue)}</p></div>
+    <div class="qhd"><span class="chip">암기</span>${it.src?`<span class="chip">${esc(it.src)}</span>`:(it.sec?`<span class="chip">${esc(secTitle(it.sec))}</span>`:'')}</div>
+    <div class="tiny muted" style="margin-top:6px">${esc((it.src||secTitle(it.sec)||'암기 항목'))} 관련 · 빈칸(____)에 들어갈 내용을 입력하세요</div>
+    <div class="stem" style="margin-top:4px"><p style="white-space:pre-wrap;line-height:1.75">${esc(it.cloze.cue)}</p></div>
     <textarea id="memIn" style="margin-top:8px" placeholder="빈칸에 들어갈 내용을 입력하세요" ${r?'disabled':''}>${r?esc(r.typed):''}</textarea>
-    ${!r?`<button class="btn pri" style="width:100%;margin-top:8px" onclick="checkMem()">확인</button>`
+    ${!r?`<div class="row" style="gap:8px;margin-top:8px">
+        <button class="btn pri" style="flex:2" onclick="checkMem()">확인</button>
+        <button class="btn gh" style="flex:1" onclick="memMv(1)">건너뛰기 →</button>
+      </div>`
       :`<div class="fb ${r.ok?'ok':'no'}" style="margin-top:8px">
         <b>${r.ok?'✔ 정답':'✘ 다시 확인'}</b>${r.ok?'':` · 일치율 ${Math.round(r.sim*100)}%`}
         <div class="small" style="margin-top:6px">정답 &nbsp;<b style="color:var(--ok)">${esc(it.cloze.answer)}</b></div>
         ${r.ok?'':`<div class="small" style="margin-top:3px">입력 &nbsp;<span style="color:var(--no)">${esc(r.typed||'(빈칸)')}</span></div>
         <button class="btn sm" style="margin-top:8px" onclick="acceptMem()">맞게 외웠음으로 처리</button>`}
         <div class="tiny muted" style="margin-top:8px">전체 · ${esc(it.cloze.full)}</div>
-      </div>`}
+      </div>
+      <button class="btn pri" style="width:100%;margin-top:10px" onclick="memMv(1)">${M.i===M.items.length-1?'끝내기 ✓':'다음 문제 →'}</button>`}
   </div>
   <div style="height:70px"></div>
   <div class="sticky-bot"><div class="wrap row">
