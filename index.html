@@ -137,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],gaps:{},drillBank:[],ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -279,10 +279,10 @@ function route(){
   document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',
      x.dataset.tab===p||(p==='play'&&x.dataset.tab==='exams')||(p==='sec'&&x.dataset.tab==='summary')
      ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
-     ||(p==='memtest'&&x.dataset.tab==='notes')));
+     ||(p==='memtest'&&x.dataset.tab==='notes')||(p==='drill'&&x.dataset.tab==='notes')));
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,notes:vNotes,memtest:vMemTest,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,memtest:vMemTest,drill:vDrill,settings:vSettings}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -450,7 +450,11 @@ function fbHtml(q,sel){
         <button class="btn sm" onclick="whyWrong('${q.qid}','concept')">개념을 몰랐다</button>
         <button class="btn sm" onclick="whyWrong('${q.qid}','confuse')">헷갈렸다</button>
         <button class="btn sm" onclick="whyWrong('${q.qid}','mistake')">단순 실수</button>
-      </div></div>`:''}
+      </div>
+      <div class="tiny muted" style="margin:9px 0 4px">내가 무엇을 모르는지 (학습노트·문제 생성에 반영됩니다)</div>
+      <textarea id="gap_${q.qid}" style="min-height:52px" placeholder="예: 부분 함수 종속과 이행적 종속의 차이를 모르겠다">${esc(S.gaps[q.qid]||'')}</textarea>
+      <button class="btn sm" style="margin-top:6px" onclick="saveGap('${q.qid}')">저장</button>
+    </div>`:''}
     ${refs.length?`<div class="small" style="margin-top:7px">📖 관련 요약: ${refs.map(n=>`<a href="#/sec?no=${n}">${esc(secTitle(n))}</a>`).join(' · ')}</div>`:''}
     <details class="sm" style="margin-top:8px"><summary>✎ 모르는 내용 메모하기</summary>
       <textarea id="memo" placeholder="왜 틀렸는지, 뭘 몰랐는지 적어두면 오답분석에 모입니다">${esc(S.notes[q.qid]||'')}</textarea>
@@ -469,6 +473,13 @@ function skip(){
   save(); P.shown[q.qid]=true; drawQ();
 }
 function saveMemo(qid){const v=document.getElementById('memo').value.trim();if(v)S.notes[qid]=v;else delete S.notes[qid];save();toast('메모를 저장했습니다')}
+function saveGap(qid){const el=document.getElementById('gap_'+qid);if(!el)return;const v=el.value.trim();if(v)S.gaps[qid]=v;else delete S.gaps[qid];save();toast('저장했습니다 — 학습노트·문제 생성에 반영됩니다')}
+// 최근 '내가 모르는 것' 입력을 프롬프트용 문자열로
+function gapsText(limit){
+  const e=Object.entries(S.gaps).filter(([,v])=>v&&v.trim());
+  if(!e.length)return '- (없음)';
+  return e.slice(-(limit||12)).map(([id,v])=>`- ${id}: ${v}`).join('\n');
+}
 function mv(d){
   if(P.i+d>=P.list.length){return result()}
   P.i=Math.max(0,P.i+d); drawQ();
@@ -721,8 +732,12 @@ ${wrongs}
 [참고: 내가 남긴 메모]
 ${memos}
 
+[참고: 내가 모르는 것 (문제 풀이 중 직접 입력)]
+${gapsText(15)}
+
 [요구사항]
 1. 각 개념(sec)마다 노트 1개. 반드시 위 '요약집 내용'에 있는 것으로 학습·암기하도록 만들고, 요약집에 없는 내용을 새로 지어내지 말 것.
+   위 '내가 모르는 것'에 해당하는 개념이 있으면 그 부분을 우선적으로 짚어 준다(explain·myConfusion 활용).
 2. 각 노트의 필드:
    - concept  : 요약집 내용을 바탕으로 핵심 개념을 짧게 1~3문장 (필수, 비우지 말 것)
    - memorize : 요약집에서 꼭 외워야 할 항목 배열 — 정의·공식·키워드·분류·순서 (필수)
@@ -1025,6 +1040,12 @@ function makeCloze(text){
 }
 // 채점용 정규화: 공백·구두점 제거 + 소문자
 function normA(s){return String(s==null?'':s).replace(/\s+/g,'').replace(/[·.,()\[\]{}'"`~\-_/:=→]/g,'').toLowerCase()}
+// 입력값 v가 정답 ans와 일치하는가 (괄호 부연 제외·구두점 무시)
+function ansMatch(v,ans){
+  if(!v||!v.trim())return false;
+  const variants=[ans, String(ans).replace(/\([^)]*\)/g,''), String(ans).replace(/[^가-힣a-zA-Z0-9]/g,'')];
+  return variants.some(a=>normA(v)===normA(a));
+}
 // 간단 문자 유사도(0~1)
 function simRatio(a,b){
   a=normA(a); b=normA(b); if(!a&&!b)return 1; if(!a||!b)return 0;
@@ -1127,9 +1148,7 @@ function drawMem(){
 function checkMem(){
   const el=document.getElementById('memIn'); if(!el)return;
   const v=el.value.trim(), it=M.items[M.i], ans=it.cloze.answer;
-  // 괄호 안 영문/부연을 뺀 형태도 정답으로 인정 (예: "최초 적합(First Fit)" ← "최초 적합")
-  const variants=[ans, ans.replace(/\([^)]*\)/g,''), ans.replace(/[^가-힣a-zA-Z0-9]/g,'')];
-  const ok=v.length>0&&variants.some(a=>normA(v)===normA(a));
+  const ok=ansMatch(v,ans);   // 괄호 부연 제외·구두점 무시 매칭
   M.res[M.i]={typed:v,ok,sim:simRatio(v,ans)};
   drawMem();
 }
@@ -1148,6 +1167,173 @@ function memMv(d){
     return;
   }
   M.i=Math.max(0,M.i+d); drawMem();
+}
+
+/* ══════════════════════════════════════════════════════════
+   10-d. 순서·개념 암기 테스트 (별도 페이지)
+     · 순서형(seq)   : 화살표만 남기고 각 항목을 직접 채운다
+     · 개념군형(group): 설명을 나열하고 각 개념 이름을 직접 채운다
+   요약집 기반 AI 생성(프롬프트 복사 → drill.json 업로드) → S.drillBank
+   ══════════════════════════════════════════════════════════ */
+function drillPrompt(subj){
+  const dig=memDigest(subj);
+  if(!dig)return '';
+  return `너는 정보처리산업기사 필기 암기 문제 출제자다. 아래 [요약집]을 근거로, 두 가지 유형의 '직접 채우기' 암기 문제를 만들어라.
+
+[요약집]  (형식: [번호] 제목: 내용 | 내용 | …)
+${dig}
+
+[참고: 내가 모르는 것]
+${gapsText(15)}
+
+[유형]
+A) 순서형(type:"seq") : 순서·단계·계층·강도 순서를 통째로 외우는 것. items 배열에 순서대로 담는다.
+   예) OSI 7계층(물리→…→응용), 응집도 약함→강함, 결합도 약함→강함, SW 생명주기, 테스트 순서, DB 설계 단계 등.
+B) 개념군형(type:"group") : 서로 유사해 헷갈리는 개념들의 묶음. pairs 배열에 {c:개념명, d:그 개념의 짧은 설명}.
+   예) 키의 종류(기본키·후보키·외래키·슈퍼키·대체키), 정규형(1NF·2NF·3NF·BCNF), 조인 종류, 응집도/결합도 종류, 스케줄링 기법 등.
+
+[규칙]
+- 반드시 요약집에 있는 내용으로만. seq는 3~9개 항목, group은 3~6개 pair.
+- 코드·SQL·계산/예제는 만들지 말 것.
+- 아래 형식의 JSON 배열만 "drill.json" 파일로 출력한다(설명 문장 없이).
+
+[{"type":"seq","title":"OSI 7계층 (하위→상위)","items":["물리 계층","데이터 링크 계층","네트워크 계층","전송 계층","세션 계층","표현 계층","응용 계층"]},{"type":"group","title":"키의 종류","pairs":[{"c":"기본키","d":"릴레이션에서 튜플을 유일하게 식별하는 대표 키"},{"c":"외래키","d":"다른 릴레이션의 기본키를 참조하는 속성"}]}]`;
+}
+function copyDrillPrompt(){
+  const p=drillPrompt(DB.subj);
+  if(!p){toast('요약 데이터가 준비되지 않았습니다');return}
+  navigator.clipboard.writeText(p).then(()=>toast('암기 테스트 프롬프트를 복사했습니다')).catch(()=>{
+    const t=document.createElement('textarea');t.value=p;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('암기 테스트 프롬프트를 복사했습니다')});
+}
+function importDrill(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
+  inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{
+      let data;try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
+      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.drill)?data.drill:(data&&Array.isArray(data.items)?data.items:null));
+      if(!arr){alert('문제 JSON 배열을 찾을 수 없습니다');return}
+      const seen=new Set((S.drillBank||[]).map(x=>x.type+'|'+(x.title||'')));
+      let n=0;
+      arr.forEach(x=>{
+        if(!x||typeof x!=='object')return;
+        const title=String(x.title||'').trim();
+        if(x.type==='seq'){
+          const items=(Array.isArray(x.items)?x.items:[]).map(s=>String(s).trim()).filter(Boolean);
+          if(items.length<2)return;
+          const key='seq|'+title; if(seen.has(key))return; seen.add(key);
+          S.drillBank.push({type:'seq',title:title||'순서 외우기',items}); n++;
+        }else if(x.type==='group'){
+          const pairs=(Array.isArray(x.pairs)?x.pairs:[]).map(pp=>({c:String(pp&&pp.c||'').trim(),d:String(pp&&pp.d||'').trim()})).filter(pp=>pp.c&&pp.d);
+          if(pairs.length<2)return;
+          const key='group|'+title; if(seen.has(key))return; seen.add(key);
+          S.drillBank.push({type:'group',title:title||'개념 맞히기',pairs}); n++;
+        }
+      });
+      if(!n){alert('불러올 문제가 없습니다 (seq/group 형식인지 확인하세요)');return}
+      save(); toast(`${n}개 암기 세트를 추가했습니다`); vDrill();
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function clearDrill(){if(!(S.drillBank||[]).length){toast('삭제할 세트가 없습니다');return}if(!confirm('저장된 암기 테스트를 모두 지울까요?'))return;S.drillBank=[];save();vDrill()}
+let DB={subj:0};                  // 프롬프트 과목 범위
+let DR={items:null,i:0,res:{}};   // 플레이어 상태
+function vDrill(){
+  if(DR.items)return drawDrill();
+  const bank=S.drillBank||[], n=bank.length, seqN=bank.filter(x=>x.type==='seq').length, grpN=n-seqN;
+  app().innerHTML=`
+  <h2 class="sec">순서·개념 암기 테스트</h2>
+  <div class="card small muted"><b>순서형</b>(OSI 7계층·응집도·결합도 등)은 화살표만 남기고 각 항목을 직접 채우고,
+  <b>개념군형</b>(후보키·외래키 등)은 설명을 보고 개념 이름을 직접 채웁니다.</div>
+
+  <h2 class="sec">AI로 만들기</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px"><b>프롬프트 복사</b> → Claude·ChatGPT → 받은 <b>drill.json 업로드</b>. 요약집 내용을 기반으로 만듭니다.</div>
+    <div class="tiny muted" style="margin:2px 0 4px">프롬프트 범위</div>
+    <div class="pill">${[[0,'전체'],[1,'1과목'],[2,'2과목'],[3,'3과목']].map(([v,l])=>`<button class="${DB.subj===v?'on':''}" onclick="DB.subj=${v};vDrill()">${l}</button>`).join('')}</div>
+    <div class="grid2" style="margin-top:10px">
+      <button class="btn pri" onclick="copyDrillPrompt()">프롬프트 복사</button>
+      <button class="btn" onclick="importDrill()">drill.json 업로드</button>
+    </div>
+    ${n?`<button class="btn gh sm" style="width:100%;margin-top:8px;color:var(--no)" onclick="clearDrill()">저장된 세트 ${n}개 초기화</button>`:''}
+  </div>
+
+  ${n?`<button class="btn pri" style="width:100%;padding:13px;margin-top:12px" onclick="startDrill()">시작하기 (순서 ${seqN} · 개념군 ${grpN})</button>`
+    :`<div class="empty" style="margin-top:10px">저장된 암기 세트가 없습니다.<br>위에서 <b>AI로 만들어</b> drill.json을 업로드하세요.</div>`}
+  <div style="height:24px"></div>`;
+}
+function startDrill(){
+  if(!(S.drillBank||[]).length){toast('세트가 없습니다');return}
+  DR.items=shuffle(S.drillBank.map(x=>{
+    const it=Object.assign({},x);
+    if(it.type==='group')it._order=shuffle(it.pairs.map((_,i)=>i));   // 개념군 표시 순서 섞기
+    return it;
+  }));
+  DR.i=0; DR.res={}; drawDrill();
+}
+function drawDrill(){
+  const it=DR.items[DR.i], r=DR.res[DR.i];
+  const ht=document.getElementById('hTitle'); if(ht)ht.textContent='순서·개념 암기';
+  let bodyHtml='';
+  if(it.type==='seq'){
+    bodyHtml=`<div class="tiny muted" style="margin:2px 0 8px">화살표 순서에 맞게 각 빈칸을 채우세요.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start">
+      ${it.items.map((ans,j)=>`${j?'<span style="color:var(--tx3);align-self:center">→</span>':''}
+        <span style="display:inline-flex;flex-direction:column;gap:2px">
+          <input id="dr_${j}" ${r?'disabled':''} value="${r?esc(r.answers[j]||''):''}" placeholder="${j+1}번" style="width:118px;padding:7px 8px;${r?(r.oks[j]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
+          ${r?`<span class="tiny" style="color:${r.oks[j]?'var(--ok)':'var(--no)'};max-width:118px">${r.oks[j]?'✔':'✘ '+esc(ans)}</span>`:''}
+        </span>`).join('')}
+      </div>`;
+  }else{
+    bodyHtml=`<div class="tiny muted" style="margin:2px 0 8px">각 설명에 해당하는 개념 이름을 채우세요.</div>
+      ${it._order.map((pi,row)=>{const pr=it.pairs[pi];return `<div class="card tight" style="margin:6px 0">
+        <div class="small">${esc(pr.d)}</div>
+        <input id="dr_${row}" ${r?'disabled':''} value="${r?esc(r.answers[row]||''):''}" placeholder="개념 이름" style="margin-top:6px;${r?(r.oks[row]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
+        ${r?`<div class="tiny" style="margin-top:4px;color:${r.oks[row]?'var(--ok)':'var(--no)'}">${r.oks[row]?'✔ 정답':'✘ 정답: '+esc(pr.c)}</div>`:''}
+      </div>`}).join('')}`;
+  }
+  const nBlank=it.type==='seq'?it.items.length:it.pairs.length;
+  const nOk=r?r.oks.filter(Boolean).length:0;
+  app().innerHTML=`
+  <div class="row" style="margin:12px 0 4px">
+    <span class="tiny muted">${DR.i+1} / ${DR.items.length}</span>
+    <div class="bar" style="flex:1"><i style="width:${(DR.i+1)/DR.items.length*100}%"></i></div>
+    <button class="btn sm gh" onclick="DR.items=null;go('#/drill')">나가기</button>
+  </div>
+  <div class="card">
+    <div class="qhd"><span class="chip">${it.type==='seq'?'순서':'개념군'}</span><b style="font-size:14.5px">${esc(it.title)}</b></div>
+    <div style="margin-top:10px">${bodyHtml}</div>
+    ${r?`<div class="fb ${nOk===nBlank?'ok':'no'}" style="margin-top:10px"><b>${nOk} / ${nBlank} 정답</b></div>
+      <button class="btn pri" style="width:100%;margin-top:10px" onclick="drillMv(1)">${DR.i===DR.items.length-1?'끝내기 ✓':'다음 →'}</button>`
+     :`<div class="row" style="gap:8px;margin-top:12px">
+        <button class="btn pri" style="flex:2" onclick="checkDrill()">확인</button>
+        <button class="btn gh" style="flex:1" onclick="drillMv(1)">건너뛰기 →</button>
+      </div>`}
+  </div>
+  <div style="height:24px"></div>`;
+}
+function checkDrill(){
+  const it=DR.items[DR.i];
+  const targets=it.type==='seq'?it.items:it._order.map(pi=>it.pairs[pi].c);
+  const answers=[], oks=[];
+  targets.forEach((ans,j)=>{const el=document.getElementById('dr_'+j);const v=el?el.value.trim():'';answers.push(v);oks.push(ansMatch(v,ans))});
+  DR.res[DR.i]={answers,oks}; drawDrill();
+}
+function drillMv(d){
+  if(DR.i+d>=DR.items.length){
+    let tot=0,ok=0; Object.values(DR.res).forEach(r=>{tot+=r.oks.length;ok+=r.oks.filter(Boolean).length});
+    DR.items=null;
+    app().innerHTML=`<h2 class="sec">암기 테스트 결과</h2>
+      <div class="grid3"><div class="kpi"><div class="v">${tot}</div><div class="k">빈칸</div></div>
+      <div class="kpi"><div class="v" style="color:var(--ok)">${ok}</div><div class="k">맞음</div></div>
+      <div class="kpi"><div class="v">${tot?Math.round(ok/tot*100):0}%</div><div class="k">정답률</div></div></div>
+      <div class="grid2" style="margin-top:14px"><button class="btn" onclick="startDrill()">다시 풀기</button>
+      <button class="btn pri" onclick="go('#/notes')">학습노트로</button></div>
+      <div style="height:24px"></div>`;
+    return;
+  }
+  DR.i=Math.max(0,DR.i+d); drawDrill();
 }
 let NF={only:false,min:3};
 async function vNotes(){
@@ -1198,6 +1384,13 @@ async function vNotes(){
     <div class="small muted" style="margin-bottom:8px"><b>AI가 만든 암기 문제</b>와 노트의 <b>외울 내용·반드시 암기</b>를 모아,
     일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다. ${memN?`(내 노트 ${memN}개 포함)`:''}</div>
     <button class="btn pri" style="width:100%" onclick="go('#/memtest')">🖊 암기 빈칸 테스트 시작</button>
+  </div>
+
+  <h2 class="sec">순서·개념 암기 테스트</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px"><b>순서형</b>(OSI 7계층·응집도·결합도 등)과 <b>개념군형</b>(후보키·외래키 등)을
+    화살표·설명만 남기고 <b>각 빈칸을 직접 채우는</b> 테스트입니다.${(S.drillBank||[]).length?` (${(S.drillBank||[]).length}세트)`:''}</div>
+    <button class="btn pri" style="width:100%" onclick="go('#/drill')">🧩 순서·개념 암기 시작</button>
   </div>
 
   ${all.length?`
@@ -1465,13 +1658,17 @@ ${w.map(x=>`- ${x.sec.subjectNo}과목 / ${x.sec.unit} / ${x.sec.title} (${x.v}�
 [내가 남긴 메모]
 ${Object.entries(S.notes).slice(-10).map(([id,t])=>`- ${id}: ${t}`).join('\n')||'- (없음)'}
 
+[내가 모르는 것 (문제 풀이 중 직접 입력)]
+${gapsText(15)}
+
 [최근 틀린 문제]
 ${JSON.stringify(wrongIds)}
 
 [요구사항]
 1. 실제 기출과 같은 난이도·문체(~것은?, ~옳지 않은 것은?)
-2. 각 오답 선택지마다 "이걸 고른 사람은 무엇을 착각한 것인지"를 misread 필드에 적을 것
-3. 아래 JSON 배열 형식으로만 출력 (설명 문장 없이)
+2. 위 '내가 모르는 것'과 취약 개념을 우선 겨냥해 문제를 만들 것
+3. 각 오답 선택지마다 "이걸 고른 사람은 무엇을 착각한 것인지"를 misread 필드에 적을 것
+4. 아래 JSON 배열 형식으로만 출력 (설명 문장 없이)
 
 [{"q":"문제 지문","code":"코드나 표가 있으면 여기(없으면 생략)","options":["①내용","②내용","③내용","④내용"],"answer":2,"why":"정답 해설","misread":["①을 고른 이유","②...","③...","④..."],"topic":"관련 개념명"}]`;
   navigator.clipboard.writeText(p).then(()=>toast('프롬프트를 복사했습니다')).catch(()=>{
