@@ -716,17 +716,18 @@ function notePrompt(min){
   const wrongs=Object.entries(S.answers).filter(([,a])=>!a.ok).slice(-25).map(([id,a])=>{
     const q=D.qById[id];
     if(!q)return `- ${id}`;
-    const my=a.sel&&q.options[a.sel-1]?`${CIRC[a.sel-1]}"${q.options[a.sel-1].text.slice(0,32)}"`:'모르겠음';
-    const ans=q.options[q.answer-1]?`${CIRC[q.answer-1]}"${q.options[q.answer-1].text.slice(0,32)}"`:'';
-    return `- ${id}: 나 ${my} → 정답 ${ans}`;
+    const stem=(q.stem||[]).filter(b=>b.type==='text').map(b=>clean(b.text)).join(' ').slice(0,150)||'(지문 생략)';
+    const opts=(q.options||[]).map((o,i)=>`${CIRC[i]}${clean(o.text).slice(0,40)}`).join(' ');
+    const mine=a.sel?CIRC[a.sel-1]:'모르겠음';
+    return `- [${id}] ${stem}\n  보기: ${opts}\n  내 답 ${mine} → 정답 ${CIRC[q.answer-1]}`;
   }).join('\n')||'- (없음)';
   const memos=Object.entries(S.notes).slice(-10).map(([id,t])=>`- ${id}: ${t}`).join('\n')||'- (없음)';
-  return `너는 정보처리산업기사 필기 학습 코치다. 아래 [취약 개념과 요약집 내용]에 있는 내용을 학습자가 한눈에 학습·암기할 수 있는 노트로 정리하라.
+  return `너는 정보처리산업기사 필기 학습 코치다. 아래 [요약집 내용]과 [내가 틀린 기출문제]를 근거로, 학습자가 한눈에 학습·암기할 수 있는 노트로 정리하라.
 
 [취약 개념과 요약집 내용]  (sec = 개념 번호, 그대로 되돌려줄 것)
 ${concepts}
 
-[참고: 최근 틀린 문제  (내가 고른 답 → 정답)]
+[내가 틀린 기출문제 (학습·문제의 근거로 사용 / 요약집에 없는 새 내용이 있을 수 있음)]
 ${wrongs}
 
 [참고: 내가 남긴 메모]
@@ -736,17 +737,18 @@ ${memos}
 ${gapsText(15)}
 
 [요구사항]
-1. 각 개념(sec)마다 노트 1개. 반드시 위 '요약집 내용'에 있는 것으로 학습·암기하도록 만들고, 요약집에 없는 내용을 새로 지어내지 말 것.
-   위 '내가 모르는 것'에 해당하는 개념이 있으면 그 부분을 우선적으로 짚어 준다(explain·myConfusion 활용).
-2. 각 노트의 필드:
-   - concept  : 요약집 내용을 바탕으로 핵심 개념을 짧게 1~3문장 (필수, 비우지 말 것)
-   - memorize : 요약집에서 꼭 외워야 할 항목 배열 — 정의·공식·키워드·분류·순서 (필수)
-   - compare  : 요약집 안에서 헷갈리기 쉬운 개념끼리의 비교 — "A vs B: 차이" 형태 배열 (없으면 [])
-   - explain  : '추가 설명'. 요약집 내용만으로 이해가 부족하여, 설명을 덧붙이는 것이 학습에 실제로 도움이 된다고 판단될 때에만 짧게 덧붙인다. 도움이 안 되면 반드시 "" (빈 문자열).
-   - myConfusion : '내가 헷갈린 부분에 대한 설명'. 위 '최근 틀린 문제'를 근거로, 그 헷갈림을 풀어주는 설명이 학습에 도움이 될 때에만 1~2문장으로 덧붙인다. 도움이 안 되거나 근거가 없으면 반드시 "".
-3. explain 과 myConfusion 은 억지로 채우지 말 것 — 학습에 도움이 될 때만 넣고, 아니면 빈 문자열로 둔다.
-4. sec는 위에서 준 숫자를 그대로 되돌려준다.
-5. 결과를 아래 형식의 JSON 배열로 만들고, "study-notes.json" 이라는 이름의 내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만)
+1. 노트는 위 [요약집 내용]과 [내가 틀린 기출문제] 둘 다를 근거로 만든다. 기출문제에는 나오지만 요약집에 없는 내용이라도, 시험에 필요한 것이면 반드시 학습 노트에 포함한다. (단, 이 두 자료 어디에도 없는 내용은 지어내지 말 것)
+2. 각 취약 개념(sec)마다 노트 1개를 만들되, 요약집에는 없고 기출에만 새로 나온 내용이 있으면 그 내용으로 노트를 추가로 만든다 — 가장 관련 있는 sec 번호를 쓰고, 마땅한 요약 항목이 없으면 sec를 0으로 둔다.
+   위 '내가 모르는 것'에 해당하면 그 부분을 우선적으로 짚어 준다(explain·myConfusion 활용).
+3. 각 노트의 필드:
+   - concept  : 핵심 개념을 짧게 1~3문장 (필수, 비우지 말 것)
+   - memorize : 꼭 외워야 할 항목 배열 — 정의·공식·키워드·분류·순서 (필수)
+   - compare  : 헷갈리기 쉬운 개념끼리의 비교 — "A vs B: 차이" 형태 배열 (없으면 [])
+   - explain  : '추가 설명'. 자료만으로 이해가 부족하여, 설명을 덧붙이는 것이 학습에 실제로 도움이 된다고 판단될 때에만 짧게 덧붙인다. 도움이 안 되면 반드시 "" (빈 문자열).
+   - myConfusion : '내가 헷갈린 부분에 대한 설명'. 위 기출·메모를 근거로, 그 헷갈림을 풀어주는 설명이 학습에 도움이 될 때에만 1~2문장으로 덧붙인다. 아니면 반드시 "".
+4. explain 과 myConfusion 은 억지로 채우지 말 것 — 학습에 도움이 될 때만 넣고, 아니면 빈 문자열로 둔다.
+5. sec는 위에서 준 숫자를 그대로 되돌려준다(기출 전용 새 내용은 0 허용).
+6. 결과를 아래 형식의 JSON 배열로 만들고, "study-notes.json" 이라는 이름의 내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만)
 
 [{"sec":${w[0].no},"title":"${esc(w[0].sec.title)}","concept":"...","memorize":["...","..."],"compare":["A vs B: ..."],"explain":"","myConfusion":""}]`;
 }
@@ -1647,10 +1649,19 @@ function genMv(d){
   }
   G.i=Math.max(0,G.i+d); drawGen();
 }
-function copyPrompt(){
+async function copyPrompt(){
+  const clean=t=>String(t==null?'':t).replace(/\s+/g,' ').trim();
   const w=weakList(2).slice(0,12);
-  const wrongIds=Object.entries(S.answers).filter(([,a])=>!a.ok).slice(-25).map(([id,a])=>({qid:id,내가고른답:a.sel||'모르겠음'}));
-  const p=`너는 정보처리산업기사 필기 출제위원이다. 아래 학습자의 취약 개념을 바탕으로 4지선다 문제 15개를 만들어라.
+  const wrongIds=Object.entries(S.answers).filter(([,a])=>!a.ok).map(([id])=>id);
+  await Promise.all([...new Set(wrongIds.map(i=>i.slice(0,6)))].map(getExam));
+  const wrongs=Object.entries(S.answers).filter(([,a])=>!a.ok).slice(-25).map(([id,a])=>{
+    const q=D.qById[id];
+    if(!q)return `- ${id}`;
+    const stem=(q.stem||[]).filter(b=>b.type==='text').map(b=>clean(b.text)).join(' ').slice(0,150)||'(지문 생략)';
+    const opts=(q.options||[]).map((o,i)=>`${CIRC[i]}${clean(o.text).slice(0,40)}`).join(' ');
+    return `- [${id}] ${stem}\n  보기: ${opts}\n  내 답 ${a.sel?CIRC[a.sel-1]:'모르겠음'} → 정답 ${CIRC[q.answer-1]}`;
+  }).join('\n')||'- (없음)';
+  const p=`너는 정보처리산업기사 필기 출제위원이다. 아래 학습자의 취약 개념과 틀린 기출을 바탕으로 4지선다 문제 15개를 만들어라.
 
 [취약 개념 (점수 높을수록 취약)]
 ${w.map(x=>`- ${x.sec.subjectNo}과목 / ${x.sec.unit} / ${x.sec.title} (${x.v}점)`).join('\n')||'- (기록 없음)'}
@@ -1661,12 +1672,12 @@ ${Object.entries(S.notes).slice(-10).map(([id,t])=>`- ${id}: ${t}`).join('\n')||
 [내가 모르는 것 (문제 풀이 중 직접 입력)]
 ${gapsText(15)}
 
-[최근 틀린 문제]
-${JSON.stringify(wrongIds)}
+[내가 틀린 기출문제 (요약집에 없는 새 내용이 있을 수 있음)]
+${wrongs}
 
 [요구사항]
 1. 실제 기출과 같은 난이도·문체(~것은?, ~옳지 않은 것은?)
-2. 위 '내가 모르는 것'과 취약 개념을 우선 겨냥해 문제를 만들 것
+2. 위 '내가 모르는 것'과 취약 개념을 우선 겨냥하고, '틀린 기출문제'에 나온 내용(요약집에 없더라도)도 반영해 문제를 만들 것
 3. 각 오답 선택지마다 "이걸 고른 사람은 무엇을 착각한 것인지"를 misread 필드에 적을 것
 4. 아래 JSON 배열 형식으로만 출력 (설명 문장 없이)
 
