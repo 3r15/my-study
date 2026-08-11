@@ -866,7 +866,7 @@ function startAllQuiz(){
    학습노트의 '외울 내용(memorize)'·'반드시 암기(mustMemorize)' 항목을
    모아 일부를 빈칸으로 만들고, 직접 타이핑해 정답과 비교한다.
    ══════════════════════════════════════════════════════════ */
-let M={items:null,i:0,res:{}};
+let M={items:null,i:0,res:{},hint:{},draft:{}};
 // 모든 노트에서 암기 항목을 모은다 (중복 제거)
 function memItems(){
   const out=[], seen=new Set();
@@ -973,8 +973,9 @@ function makeCloze(text){
   }
   const r=clozeSplit(body,['/','；',';','，',','])||clozeSplit(body,['→','->']);
   if(r)return {cue:(label?label+': ':'')+r.cue, answer:r.answer, full:text, label};
-  // 목록 구분자가 없으면: 라벨이 있으면 라벨을 힌트로 본문 전체를 답으로
-  if(label)return {cue:label+': ____', answer:body, full:text, label};
+  // 목록 구분자가 없으면: 라벨(이름)이 있으면 설명을 주고 이름을 맞히게 한다
+  // (이름을 보고 긴 설명을 작성하는 문제는 만들지 않는다)
+  if(label)return {cue:'____ : '+body, answer:label, full:text, label:''};
   return {cue:text.slice(0,2)+'… ____ (전체 입력)', answer:text, full:text, label:''};
 }
 // 채점용 정규화: 공백·구두점 제거 + 소문자
@@ -1009,7 +1010,25 @@ function vMemTest(){
 function startMemTest(){
   const items=buildMemPool(MTscope);
   if(!items.length){toast('이 범위에 암기 항목이 없습니다');return}
-  M.items=shuffle(items); M.i=0; M.res={}; drawMem();
+  M.items=shuffle(items); M.i=0; M.res={}; M.hint={}; M.draft={}; drawMem();
+}
+// 정답의 힌트를 만든다: 한글은 초성, 영문/숫자는 '첫 글자 + 나머지 밑줄'
+//  예) "FCFS" → "F _ _ _" · "전송 계층" → "ㅈㅅ ㄱㅊ"
+const CHO=['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+function hintOf(answer){
+  const a=(answer||'').replace(/\([^)]*\)/g,'').trim()||answer||'';  // 괄호 부연 제외
+  let out='', seenLatin=false;
+  for(const ch of a){
+    const c=ch.charCodeAt(0);
+    if(c>=0xAC00&&c<=0xD7A3){ out+=CHO[Math.floor((c-0xAC00)/588)]; }   // 한글 → 초성
+    else if(/[A-Za-z0-9]/.test(ch)){ out+= seenLatin?' _':ch.toUpperCase(); seenLatin=true; } // 영문/숫자 → 첫 글자+밑줄
+    else { out+=ch; }   // 공백·기호는 그대로
+  }
+  return out.trim();
+}
+function showHint(){
+  const el=document.getElementById('memIn'); if(el)M.draft[M.i]=el.value;   // 입력 중이던 내용 보존
+  M.hint[M.i]=true; drawMem();
 }
 function drawMem(){
   const it=M.items[M.i], r=M.res[M.i];
@@ -1024,9 +1043,11 @@ function drawMem(){
     <div class="qhd"><span class="chip">암기</span>${it.src?`<span class="chip">${esc(it.src)}</span>`:(it.sec?`<span class="chip">${esc(secTitle(it.sec))}</span>`:'')}</div>
     <div class="tiny muted" style="margin-top:6px">${esc((it.src||secTitle(it.sec)||'암기 항목'))} 관련 · 빈칸(____)에 들어갈 내용을 입력하세요</div>
     <div class="stem" style="margin-top:4px"><p style="white-space:pre-wrap;line-height:1.75">${esc(it.cloze.cue)}</p></div>
-    <textarea id="memIn" style="margin-top:8px" placeholder="빈칸에 들어갈 내용을 입력하세요" ${r?'disabled':''}>${r?esc(r.typed):''}</textarea>
-    ${!r?`<div class="row" style="gap:8px;margin-top:8px">
+    <textarea id="memIn" style="margin-top:8px" placeholder="빈칸에 들어갈 내용을 입력하세요" ${r?'disabled':''}>${r?esc(r.typed):esc(M.draft[M.i]||'')}</textarea>
+    ${!r?`${M.hint[M.i]?`<div class="tiny" style="margin-top:7px;color:var(--ac)">💡 힌트 &nbsp;<b style="font-size:15px;letter-spacing:2px">${esc(hintOf(it.cloze.answer))}</b></div>`:''}
+      <div class="row" style="gap:8px;margin-top:8px">
         <button class="btn pri" style="flex:2" onclick="checkMem()">확인</button>
+        <button class="btn" style="flex:1" ${M.hint[M.i]?'disabled':''} onclick="showHint()">💡 힌트</button>
         <button class="btn gh" style="flex:1" onclick="memMv(1)">건너뛰기 →</button>
       </div>`
       :`<div class="fb ${r.ok?'ok':'no'}" style="margin-top:8px">
