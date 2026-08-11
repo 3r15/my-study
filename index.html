@@ -323,11 +323,32 @@ function vHome(){
 function examRow(e){
   const done=Object.values(S.answers).filter(a=>a.exam===e.id);
   const ok=done.filter(a=>a.ok).length;
-  return `<button class="lrow" onclick="go('#/play?mode=exam&id=${e.id}')">
-    <span class="g"><span class="t">${esc(e.title)} 기출문제</span>
-    <span class="s">${e.count}문항${done.length?` · 진행 ${done.length}/${e.count} · 정답률 ${Math.round(ok/done.length*100)}%`:''}</span></span>
-    ${done.length>=e.count?'<span class="chip ok">완료</span>':done.length?`<span class="chip">${Math.round(done.length/e.count*100)}%</span>`:''}
-    <span class="muted">›</span></button>`;
+  return `<div class="row" style="gap:6px;margin:7px 0">
+    <button class="lrow" style="flex:1;margin:0" onclick="go('#/play?mode=exam&id=${e.id}')">
+      <span class="g"><span class="t">${esc(e.title)} 기출문제</span>
+      <span class="s">${e.count}문항${done.length?` · 진행 ${done.length}/${e.count} · 정답률 ${Math.round(ok/done.length*100)}%`:''}</span></span>
+      ${done.length>=e.count?'<span class="chip ok">완료</span>':done.length?`<span class="chip">${Math.round(done.length/e.count*100)}%</span>`:''}
+      <span class="muted">›</span></button>
+    ${done.length?`<button class="btn gh sm" style="flex:none" title="이 회차 다시 풀기" onclick="redoExam('${e.id}')">↺ 다시</button>`:''}
+  </div>`;
+}
+// 한 회차의 답안을 지워 처음부터 다시 풀 수 있게 한다
+function redoExam(id){
+  if(!confirm('이 회차의 답안을 지우고 처음부터 다시 풀까요? (취약 점수·노트는 유지됩니다)'))return;
+  Object.keys(S.answers).forEach(qid=>{if(S.answers[qid].exam===id)delete S.answers[qid]});
+  save(); toast('이 회차를 다시 풀 수 있습니다'); route();
+}
+// 모든 기출 답안을 지운다 (전체 다시 풀기)
+function redoAllExams(){
+  if(!Object.keys(S.answers).length){toast('푼 기출 기록이 없습니다');return}
+  if(!confirm('모든 기출 답안을 지우고 전부 다시 풀까요? (취약 점수·노트는 유지됩니다)'))return;
+  S.answers={}; save(); toast('기출을 전부 다시 풀 수 있습니다'); route();
+}
+// 생성된 학습노트를 전부 삭제한다
+function clearAllNotes(){
+  if(!Object.keys(S.studyNotes).length){toast('삭제할 학습노트가 없습니다');return}
+  if(!confirm('생성된 학습노트를 전부 삭제할까요? (되돌릴 수 없습니다)'))return;
+  S.studyNotes={}; save(); toast('학습노트를 모두 삭제했습니다'); route();
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -337,7 +358,8 @@ function vExams(){
   const subs=[1,2,3].map(n=>`<button class="btn" onclick="go('#/play?mode=subject&sub=${n}&n=30')">${n}과목 30문항</button>`).join('');
   const units=[...new Set(D.index.units.map(u=>u.name))];
   app().innerHTML=`
-  <h2 class="sec">회차별 (2022~2025 · 총 720문항)</h2>
+  <div class="row" style="align-items:baseline"><h2 class="sec" style="flex:1">회차별 (2022~2025 · 총 720문항)</h2>
+    ${Object.keys(S.answers).length?`<button class="btn gh sm" onclick="redoAllExams()">↺ 전체 다시 풀기</button>`:''}</div>
   ${D.index.exams.map(examRow).join('')}
   <h2 class="sec">과목별 랜덤</h2><div class="grid3">${subs}</div>
   <h2 class="sec">단원별 집중</h2>
@@ -1186,6 +1208,7 @@ async function vNotes(){
       <button class="${NF.only?'on':''}" onclick="NF.only=true;vNotes()">미복습 ${all.length-revN}</button>
     </div>
     <button class="btn sm gh" onclick="copyNotes()">📋 노트 복사</button>
+    <button class="btn sm gh" style="color:var(--no)" onclick="clearAllNotes()">🗑 전체 삭제</button>
   </div>
   ${list.map(n=>`
     <div class="card tight" style="${n.reviewed?'opacity:.62':''}">
@@ -1481,6 +1504,8 @@ function vSettings(){
   </div>
   <h2 class="sec">초기화</h2>
   <div class="grid2">
+    <button class="btn" onclick="redoAllExams()">기출 답안 초기화 (다시 풀기)</button>
+    <button class="btn" onclick="clearAllNotes()">학습노트 전체 삭제</button>
     <button class="btn" onclick="if(confirm('취약 개념 점수만 초기화할까요?')){S.weak={};save();toast('초기화했습니다')}">취약 점수 초기화</button>
     <button class="btn" style="color:var(--no)" onclick="if(confirm('모든 학습 기록을 지웁니다. 계속할까요?')){localStorage.removeItem(KEY);S=load();toast('전체 초기화');go('#/home')}">전체 초기화</button>
   </div>
