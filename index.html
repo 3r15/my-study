@@ -137,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],gaps:{},drillBank:[],ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],gaps:{},drillBank:[],drillMastered:{},ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -1239,11 +1239,24 @@ function importDrill(){
   inp.click();
 }
 function clearDrill(){if(!(S.drillBank||[]).length){toast('삭제할 세트가 없습니다');return}if(!confirm('저장된 암기 테스트를 모두 지울까요?'))return;S.drillBank=[];save();vDrill()}
-let DB={subj:0};                  // 프롬프트 과목 범위
-let DR={items:null,i:0,res:{}};   // 플레이어 상태
+let DB={subj:0,scope:'all',sel:{}};   // subj:프롬프트 과목 / scope:풀 범위 / sel:선택된 세트
+let DR={items:null,i:0,res:{}};       // 플레이어 상태
+const drillId=x=>x.type+'|'+(x.title||'');
+// 현재 범위(전체/미암기/선택)에 해당하는 세트 목록
+function drillPool(){
+  const bank=S.drillBank||[];
+  if(DB.scope==='unmastered')return bank.filter(x=>!S.drillMastered[drillId(x)]);
+  if(DB.scope==='select')return bank.filter(x=>DB.sel[drillId(x)]);
+  return bank.slice();
+}
+function drillToggle(i){const x=(S.drillBank||[])[i];if(!x)return;const id=drillId(x);DB.sel[id]=!DB.sel[id];vDrill()}
+function drillSelAll(on){if(on)(S.drillBank||[]).forEach(x=>DB.sel[drillId(x)]=true);else DB.sel={};vDrill()}
 function vDrill(){
   if(DR.items)return drawDrill();
   const bank=S.drillBank||[], n=bank.length, seqN=bank.filter(x=>x.type==='seq').length, grpN=n-seqN;
+  const masteredN=bank.filter(x=>S.drillMastered[drillId(x)]).length;
+  const unN=n-masteredN, selN=bank.filter(x=>DB.sel[drillId(x)]).length;
+  const poolN=drillPool().length;
   app().innerHTML=`
   <h2 class="sec">순서·개념 암기 테스트</h2>
   <div class="card small muted"><b>순서형</b>(OSI 7계층·응집도·결합도 등)은 화살표만 남기고 각 항목을 직접 채우고,
@@ -1261,13 +1274,34 @@ function vDrill(){
     ${n?`<button class="btn gh sm" style="width:100%;margin-top:8px;color:var(--no)" onclick="clearDrill()">저장된 세트 ${n}개 초기화</button>`:''}
   </div>
 
-  ${n?`<button class="btn pri" style="width:100%;padding:13px;margin-top:12px" onclick="startDrill()">시작하기 (순서 ${seqN} · 개념군 ${grpN})</button>`
-    :`<div class="empty" style="margin-top:10px">저장된 암기 세트가 없습니다.<br>위에서 <b>AI로 만들어</b> drill.json을 업로드하세요.</div>`}
+  ${n?`
+  <h2 class="sec">풀 범위</h2>
+  <div class="pill">
+    <button class="${DB.scope==='all'?'on':''}" onclick="DB.scope='all';vDrill()">전체 (${n})</button>
+    <button class="${DB.scope==='unmastered'?'on':''}" onclick="DB.scope='unmastered';vDrill()">미암기 (${unN})</button>
+    <button class="${DB.scope==='select'?'on':''}" onclick="DB.scope='select';vDrill()">선택 (${selN})</button>
+  </div>
+  ${masteredN?`<div style="text-align:right;margin:2px 0"><button class="btn gh sm" onclick="if(confirm('외움 표시를 모두 초기화할까요?')){S.drillMastered={};save();vDrill()}">외움 표시 초기화 (${masteredN})</button></div>`:''}
+  ${DB.scope==='select'?`
+    <div class="row" style="gap:6px;margin:4px 0 6px">
+      <div class="tiny muted" style="flex:1;align-self:center">풀고 싶은 세트를 고르세요</div>
+      <button class="btn gh sm" onclick="drillSelAll(true)">전체 선택</button>
+      <button class="btn gh sm" onclick="drillSelAll(false)">해제</button>
+    </div>
+    ${bank.map((x,i)=>{const id=drillId(x),on=!!DB.sel[id],m=!!S.drillMastered[id];
+      return `<button class="lrow" style="margin:5px 0" onclick="drillToggle(${i})">
+        <span class="chip ${on?'ok':''}">${on?'✓':'○'}</span>
+        <span class="g"><span class="t">${esc(x.title)}</span>
+          <span class="s">${x.type==='seq'?'순서 '+x.items.length+'개':'개념군 '+x.pairs.length+'개'}${m?' · ✅ 외움':''}</span></span></button>`}).join('')}`:''}
+  ${poolN?`<button class="btn pri" style="width:100%;padding:13px;margin-top:10px" onclick="startDrill()">시작하기 (${poolN}세트)</button>`
+    :`<div class="empty" style="margin-top:10px">${DB.scope==='select'?'선택한 세트가 없습니다. 세트를 골라 주세요.':DB.scope==='unmastered'?'미암기 세트가 없습니다. 모두 외웠어요! 🎉':'세트가 없습니다.'}</div>`}`
+  :`<div class="empty" style="margin-top:10px">저장된 암기 세트가 없습니다.<br>위에서 <b>AI로 만들어</b> drill.json을 업로드하세요.</div>`}
   <div style="height:24px"></div>`;
 }
 function startDrill(){
-  if(!(S.drillBank||[]).length){toast('세트가 없습니다');return}
-  DR.items=shuffle(S.drillBank.map(x=>{
+  const pool=drillPool();
+  if(!pool.length){toast('풀 세트가 없습니다');return}
+  DR.items=shuffle(pool.map(x=>{
     const it=Object.assign({},x);
     if(it.type==='group')it._order=shuffle(it.pairs.map((_,i)=>i));   // 개념군 표시 순서 섞기
     return it;
@@ -1320,7 +1354,11 @@ function checkDrill(){
   const targets=it.type==='seq'?it.items:it._order.map(pi=>it.pairs[pi].c);
   const answers=[], oks=[];
   targets.forEach((ans,j)=>{const el=document.getElementById('dr_'+j);const v=el?el.value.trim():'';answers.push(v);oks.push(ansMatch(v,ans))});
-  DR.res[DR.i]={answers,oks}; drawDrill();
+  DR.res[DR.i]={answers,oks};
+  // 세트를 전부 맞히면 '외움'으로 기록, 하나라도 틀리면 미암기로 되돌린다
+  const id=drillId(it);
+  if(oks.length&&oks.every(Boolean))S.drillMastered[id]=true; else delete S.drillMastered[id];
+  save(); drawDrill();
 }
 function drillMv(d){
   if(DR.i+d>=DR.items.length){
