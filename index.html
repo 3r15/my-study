@@ -113,23 +113,53 @@ details.sm summary{cursor:pointer;font-size:12.5px;color:var(--tx2);padding:4px 
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;background:#233a63;color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;z-index:99;opacity:0;transition:.25s;pointer-events:none}
 .toast.on{opacity:1}
 mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
+
+/* ══ 실기(prac) ══ */
+.mtog{display:flex;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px}
+.mtog button{border:none;background:none;color:var(--tx3);font-size:12px;font-weight:700;padding:4px 10px;border-radius:7px}
+.mtog button.on{background:var(--ac);color:#06162f}
+pre.code{background:#0b1428;border:1px solid var(--line);border-radius:11px;padding:11px 12px;margin:8px 0;
+  overflow-x:auto;font:12.5px/1.62 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#cfe0f7;white-space:pre;tab-size:4}
+pre.code .kw{color:#7fb0ff;font-weight:600}
+pre.code .ty{color:#67d5b5}
+pre.code .st{color:#f0b429}
+pre.code .nu{color:#e59adf}
+pre.code .cm{color:#5c7099;font-style:italic}
+pre.code .fn{color:#ffd9a0}
+.ansbox{width:100%;background:#0b1428;border:1px solid var(--line);border-radius:11px;color:var(--tx);
+  padding:10px 12px;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;min-height:52px}
+.ansbox:focus{outline:none;border-color:var(--ac)}
+.outbox{background:#0b1428;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:6px 0;
+  font:13px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#cfe0f7}
+.outbox.ok{border-color:var(--ok)} .outbox.no{border-color:var(--no)}
+.trwrap{overflow-x:auto;margin:8px 0;border:1px solid var(--line);border-radius:11px}
+table.tr{border-collapse:collapse;width:100%;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}
+table.tr th{background:var(--card2);color:var(--tx2);font-weight:700;padding:6px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+table.tr td{padding:5px 9px;text-align:right;border-bottom:1px solid #1d2a45;color:var(--tx);white-space:nowrap}
+table.tr tr:last-child td{border-bottom:none}
+table.tr tr:nth-child(even) td{background:rgba(255,255,255,.017)}
+table.tr td.i,table.tr th.i{text-align:center;color:var(--tx3);background:var(--bg2)}
+.diag{border-left:3px solid var(--wn);background:#2a2211;border-radius:0 10px 10px 0;padding:9px 12px;margin:8px 0;font-size:13px}
+.diag b{color:var(--wn)}
+.fchip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;
+  background:var(--card);border:1px solid var(--line);color:var(--tx2);margin:0 5px 5px 0}
+.fchip.on{background:var(--ac);border-color:var(--ac);color:#06162f}
+.fchip small{opacity:.7;font-weight:700}
+.frow{display:flex;flex-wrap:wrap;margin:4px 0 2px}
+.mini{height:7px;border-radius:4px;background:var(--card2);overflow:hidden;flex:1}
+.mini i{display:block;height:100%;border-radius:4px}
+
 </style>
 </head>
 <body>
 <header><div class="wrap hd">
   <h1 id="hTitle">정보처리산업기사 필기</h1><div class="sp"></div>
-  <button onclick="go('#/settings')">⚙</button>
+  <div class="mtog" id="mTog"></div><button onclick="go('#/settings')">⚙</button>
 </div></header>
 
 <main id="app" class="wrap"><div class="empty">불러오는 중…</div></main>
 
-<nav><div class="in">
-  <a href="#/home"     data-tab="home"><i>◎</i>홈</a>
-  <a href="#/exams"    data-tab="exams"><i>✎</i>기출문제</a>
-  <a href="#/summary"  data-tab="summary"><i>▤</i>핵심요약</a>
-  <a href="#/analysis" data-tab="analysis"><i>◈</i>오답분석</a>
-  <a href="#/notes"    data-tab="notes"><i>✦</i>학습노트</a>
-</div></nav>
+<nav><div class="in" id="navIn"></div></nav>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -137,7 +167,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},sumPick:[],aiSummary:[],ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},sumPick:[],aiSummary:[],prac:{ans:{},notes:{},tag:{},mode:'input'},ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -277,13 +307,12 @@ function go(h){location.hash=h}
 function qs(h){const i=h.indexOf('?');return i<0?{}:Object.fromEntries(new URLSearchParams(h.slice(i+1)))}
 function route(){
   const h=location.hash||'#/home', p=h.split('?')[0].split('/')[1]||'home', a=qs(h);
-  document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',
-     x.dataset.tab===p||(p==='play'&&x.dataset.tab==='exams')||(p==='sec'&&x.dataset.tab==='summary')
-     ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='new'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
-     ||(p==='drill'&&x.dataset.tab==='notes')));
+  drawNav(p);
+  document.getElementById('hTitle').textContent = isPrac(p)?'정보처리산업기사 실기':'정보처리산업기사 필기';
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings,
+    phome:vPHome,pcode:vPCode,pplay:vPPlay,pterm:vPTerm,pana:vPAna}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1581,6 +1610,421 @@ function impData(){
     r.readAsText(f)};
   i.click();
 }
+
+/* ══════════════════════════════════════════════════════════
+   실기 (Practical) 모듈 — 코드 출력 맞히기 · 단답형 · 오답분석
+   ══════════════════════════════════════════════════════════ */
+const PD={idx:null,code:null,term:null,byId:{}};
+let PP=null;                              // 현재 풀이 세션
+
+function PS(){ if(!S.prac)S.prac={ans:{},notes:{},tag:{},mode:'input'}; return S.prac }
+
+async function pLoad(){
+  if(PD.code) return true;
+  try{
+    const r=await Promise.all([j('data/prac-index.json'),j('data/prac-code.json'),j('data/prac-term.json')]);
+    PD.idx=r[0]; PD.code=r[1]; PD.term=r[2];
+    PD.code.forEach(q=>PD.byId[q.id]=q); PD.term.forEach(q=>PD.byId[q.id]=q);
+    return true;
+  }catch(e){ app().innerHTML='<div class="empty">실기 데이터를 불러오지 못했습니다.<br><span class="tiny">'+esc(e.message)+'</span></div>'; return false }
+}
+
+/* ── 채점 유틸 ─────────────────────────────────────────── */
+const pn =s=>String(s==null?'':s).replace(/\r/g,'').split('\n').map(x=>x.replace(/\s+$/,'')).join('\n').replace(/\n+$/,'').replace(/^\n+/,'');
+const pnL=s=>pn(s).replace(/\s/g,'');
+const pnK=s=>pn(s).replace(/\s/g,'').replace(/[·ㆍ\-–—_()]/g,'').toLowerCase();
+
+function pDiag(user,ans){
+  const u=pn(user), a=pn(ans);
+  if(u===a) return null;
+  if(!u) return {k:'미입력',d:'답을 적지 않았습니다.'};
+  if(pnL(u)===pnL(a)) return {k:'공백·개행만 다름',d:'값 자체는 맞았습니다. 실기는 출력 서식까지 채점되므로 printf/println의 공백·개행 위치를 확인하세요.'};
+  const un=Number(u), an=Number(a);
+  if(u.indexOf('\n')<0&&a.indexOf('\n')<0&&isFinite(un)&&isFinite(an)&&u!==''){
+    if(Math.abs(un-an)===1) return {k:'1 차이 (off-by-one)',d:'반복 횟수·배열 인덱스 경계를 한 칸 더 세었거나 덜 세었습니다. < 와 <=, i++ 의 위치, 0부터 시작 여부를 확인하세요.'};
+    if(un===-an&&an!==0)   return {k:'부호 반대',d:'뺄셈 순서 또는 음수 처리 부분을 확인하세요.'};
+    if(un===an*10||un*10===an) return {k:'자릿수 밀림',d:'누적 위치나 자릿수 계산(/ 10, % 10)을 확인하세요.'};
+    if(an===Math.trunc(an)&&un!==Math.trunc(un)&&Math.trunc(un)===an)
+      return {k:'정수 나눗셈 오해',d:'C·Java에서 int / int 는 소수점을 버립니다. 실수 결과를 얻으려면 한쪽을 실수로 형변환해야 합니다.'};
+    if(Math.abs(un-an)<=3) return {k:'근접 오답',d:'반복 조건이나 초기값이 한두 단계 어긋났습니다. 아래 추적표에서 첫 회차 값부터 대조해 보세요.'};
+    return {k:'값이 다름',d:'연산 순서나 누적 변수의 초기값을 확인하세요.'};
+  }
+  const ul=u.split('\n'), al=a.split('\n');
+  if(ul.length!==al.length) return {k:'출력 줄 수 다름 ('+ul.length+' vs '+al.length+')',d:'반복 횟수 또는 개행 위치를 잘못 판단했습니다.'};
+  if(ul.slice().sort().join('|')===al.slice().sort().join('|')) return {k:'출력 순서 다름',d:'값은 모두 맞지만 순서가 다릅니다. 반복 방향(증가/감소)이나 중첩 순서를 확인하세요.'};
+  return {k:'값이 다름',d:'아래 추적표에서 변수 변화를 한 회차씩 따라가 보세요.'};
+}
+function pTermOk(user,q){
+  const u=pnK(user); if(!u) return false;
+  const cands=[q.ko].concat((q.en||'').split(/[;,]/));
+  return cands.some(c=>{c=pnK(c); return c.length>1&&(u===c||(c.length>3&&u.indexOf(c)>=0)||(u.length>3&&c.indexOf(u)>=0))});
+}
+
+/* ── 기록 ──────────────────────────────────────────────── */
+function pRec(q,ok,val,pat){
+  const P=PS(), tags=q.tags&&q.tags.length?q.tags:[q.dom];
+  P.ans[q.id]={ok:!!ok,v:String(val==null?'':val).slice(0,300),t:Date.now(),
+               kind:q.code?'code':'term',pat:pat||'',tags:tags};
+  tags.forEach(t=>{P.tag[t]=(P.tag[t]||0)+(ok?-0.5:1); if(P.tag[t]<0)P.tag[t]=0});
+  save();
+}
+function pStat(kind){
+  const A=Object.values(PS().ans).filter(a=>!kind||a.kind===kind);
+  const n=A.length, ok=A.filter(a=>a.ok).length;
+  return {n:n,ok:ok,rate:n?Math.round(ok/n*100):0};
+}
+function pTagStats(){
+  const m={};
+  Object.values(PS().ans).forEach(a=>(a.tags||[]).forEach(t=>{
+    if(!t)return; m[t]=m[t]||{t:t,n:0,ok:0}; m[t].n++; if(a.ok)m[t].ok++;
+  }));
+  return Object.values(m).map(x=>(x.rate=Math.round(x.ok/x.n*100),x)).sort((a,b)=>a.rate-b.rate||b.n-a.n);
+}
+function pPatStats(){
+  const m={};
+  Object.values(PS().ans).forEach(a=>{if(!a.ok&&a.pat)m[a.pat]=(m[a.pat]||0)+1});
+  return Object.keys(m).map(k=>({k:k,v:m[k]})).sort((a,b)=>b.v-a.v);
+}
+
+/* ── 코드 하이라이팅 ───────────────────────────────────── */
+const P_KW=/\b(if|else|for|while|do|switch|case|break|continue|return|goto|new|class|public|private|protected|static|void|final|extends|implements|import|package|try|catch|finally|throw|throws|def|elif|in|not|and|or|None|True|False|print|struct|typedef|sizeof|include|define|main)\b/g;
+const P_TY=/\b(int|long|short|float|double|char|boolean|unsigned|signed|String|self)\b/g;
+function hl(src){
+  let s=esc(src); const box=[];
+  const enc=n=>String(n).split('').map(d=>String.fromCharCode(97+ +d)).join('');
+  const dec=t=>+t.split('').map(ch=>ch.charCodeAt(0)-97).join('');
+  const stash=(t,c)=>{box.push('<span class="'+c+'">'+t+'</span>');return ''+enc(box.length-1)+''};
+  s=s.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g,m=>stash(m,'cm'));
+  s=s.replace(/(&quot;(?:[^&\n]|&(?!quot;))*?&quot;|&#39;[^\n]*?&#39;)/g,m=>stash(m,'st'));
+  s=s.replace(P_TY,'<span class="ty">$1</span>').replace(P_KW,'<span class="kw">$1</span>');
+  s=s.replace(/\b(\d+\.?\d*)\b/g,'<span class="nu">$1</span>');
+  s=s.replace(/([a-j]+)/g,(_,t)=>box[dec(t)]);
+  return s;
+}
+
+/* ── 실기 홈 ───────────────────────────────────────────── */
+async function vPHome(){
+  if(!await pLoad())return;
+  const sc=pStat('code'), st=pStat('term'), all=pStat();
+  const weak=pTagStats().filter(x=>x.n>=3&&x.rate<70).slice(0,5);
+  const pats=pPatStats().slice(0,4);
+  app().innerHTML=
+  '<h2 class="sec">학습 현황</h2>'+
+  '<div class="grid3">'+
+    '<div class="kpi"><div class="v">'+all.n+'</div><div class="k">푼 문제</div></div>'+
+    '<div class="kpi"><div class="v" style="color:'+(all.rate>=60?'var(--ok)':'var(--wn)')+'">'+all.rate+'%</div><div class="k">정답률</div></div>'+
+    '<div class="kpi"><div class="v">'+(PD.idx.code.n+PD.idx.term.n)+'</div><div class="k">전체 문항</div></div>'+
+  '</div>'+
+  '<div class="card tight"><div class="row small">'+
+    '<span style="flex:1">코드 출력 <b>'+sc.n+'</b> / '+PD.idx.code.n+'</span>'+
+    '<span class="muted tiny">정답률 '+sc.rate+'%</span></div>'+
+    '<div class="mini" style="margin-top:6px"><i style="width:'+(sc.n/PD.idx.code.n*100)+'%;background:var(--ac)"></i></div>'+
+    '<div class="row small" style="margin-top:10px">'+
+    '<span style="flex:1">단답형 용어 <b>'+st.n+'</b> / '+PD.idx.term.n+'</span>'+
+    '<span class="muted tiny">정답률 '+st.rate+'%</span></div>'+
+    '<div class="mini" style="margin-top:6px"><i style="width:'+(st.n/PD.idx.term.n*100)+'%;background:var(--pu)"></i></div>'+
+  '</div>'+
+  '<h2 class="sec">바로 시작</h2><div class="grid2">'+
+    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=random&n=15\')">코드 랜덤 15문항</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=random&n=20\')">단답형 랜덤 20문항</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 코드 다시</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=weak&n=15\')">취약 문법 집중</button>'+
+  '</div>'+
+  '<h2 class="sec">언어별</h2><div class="grid3">'+PD.idx.code.langs.map(l=>
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=lang&k='+encodeURIComponent(l.k)+'\')">'+l.k+
+    '<br><span class="tiny muted">'+l.n+'문항</span></button>').join('')+'</div>'+
+  (weak.length?'<h2 class="sec">취약 문법 TOP '+weak.length+'</h2>'+weak.map(w=>
+    '<button class="lrow" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(w.t)+'\')">'+
+    '<span class="chip no">'+w.rate+'%</span><span class="g"><span class="t">'+esc(w.t)+'</span>'+
+    '<span class="s">'+w.ok+'/'+w.n+' 정답</span></span><span class="muted">›</span></button>').join(''):'')+
+  (pats.length?'<h2 class="sec">내 오답 패턴</h2><div class="card tight">'+pats.map(p=>
+    '<div class="row small" style="padding:3px 0"><span style="flex:1">'+esc(p.k)+'</span>'+
+    '<span class="chip no">'+p.v+'회</span></div>').join('')+
+    '<div style="margin-top:8px"><button class="btn gh sm" onclick="go(\'#/pana\')">오답 분석 자세히 →</button></div></div>':'')+
+  '<div class="card tight tiny muted" style="margin-top:16px">코드 <b>'+PD.idx.code.n+
+    '</b>문항의 정답은 실제로 컴파일·실행해 얻은 출력입니다. 그중 <b>'+PD.idx.code.withTrace+
+    '</b>문항은 반복 회차별 변수 추적표가 함께 제공됩니다.</div><div style="height:20px"></div>';
+}
+
+/* ── 문제 고르기 ──────────────────────────────────────── */
+function pPickList(a){
+  const t=(a.t==='term')?'term':'code';
+  let list=(t==='term'?PD.term:PD.code).slice(), title='';
+  const A=PS().ans, m=a.mode||'random', k=decodeURIComponent(a.k||'');
+  if(m==='wrong'){ list=list.filter(q=>A[q.id]&&!A[q.id].ok); title=(t==='term'?'단답형':'코드')+' 틀린 문제'; }
+  else if(m==='lang'){ list=list.filter(q=>q.lang===k); title=k+' 코드'; }
+  else if(m==='tag'){  list=list.filter(q=>(q.tags||[]).indexOf(k)>=0); title=k; }
+  else if(m==='dom'){  list=list.filter(q=>q.dom===k); title=k; }
+  else if(m==='kind'){ list=list.filter(q=>q.kind===k); title=k+' 문제'; }
+  else if(m==='sec'){  list=list.filter(q=>String(q.sec)===k); title='Section '+k; }
+  else if(m==='new'){  list=list.filter(q=>!A[q.id]); title='안 푼 문제'; }
+  else if(m==='weak'){
+    const w=pTagStats().filter(x=>x.n>=2&&x.rate<75).slice(0,10).map(x=>x.t);
+    let c=w.length?list.filter(q=>(q.tags||[q.dom]).some(x=>w.indexOf(x)>=0)):[];
+    if(!c.length)c=list.slice();
+    c.sort((x,y)=>{const f=q=>(A[q.id]?(A[q.id].ok?2:0):1);return f(x)-f(y)});
+    list=c; title='취약 문법 집중';
+  }
+  if(m!=='weak') list=shuffle(list);
+  if(a.n) list=list.slice(0,+a.n);
+  return {list:list,title:title||((t==='term'?'단답형':'코드 출력')+' '+list.length+'문항')};
+}
+
+async function vPPlay(a){
+  if(!await pLoad())return;
+  const r=pPickList(a);
+  if(!r.list.length){app().innerHTML='<div class="empty">해당하는 문제가 없습니다.<br><br><button class="btn" onclick="go(\'#/phome\')">돌아가기</button></div>';return}
+  PP={list:r.list,i:0,title:r.title,t:(a.t==='term'?'term':'code'),shown:{}};
+  pDraw();
+}
+function pMv(d){
+  if(d>0&&PP.i===PP.list.length-1){ go('#/pana'); return }
+  PP.i=Math.max(0,Math.min(PP.list.length-1,PP.i+d)); window.scrollTo(0,0); pDraw();
+}
+function pToggleMode(){ const P=PS(); P.mode=(P.mode==='input')?'choice':'input'; save(); pDraw() }
+function pSkip(){ const q=PP.list[PP.i]; if(!PS().ans[q.id]) pRec(q,false,'','모르겠음'); PP.shown[q.id]=1; pDraw() }
+function pRetry(id){ const P=PS(); delete P.ans[id]; save(); delete PP.shown[id]; pDraw() }
+
+function pDraw(){
+  const q=PP.list[PP.i], A=PS().ans, rec=A[q.id], shown=PP.shown[q.id]||!!rec, mode=PS().mode;
+  document.getElementById('hTitle').textContent=PP.title;
+  app().innerHTML=
+  '<div class="row" style="margin:12px 0 4px">'+
+    '<span class="tiny muted">'+(PP.i+1)+' / '+PP.list.length+'</span>'+
+    '<div class="bar" style="flex:1"><i style="width:'+((PP.i+1)/PP.list.length*100)+'%"></i></div>'+
+    '<button class="btn sm gh" onclick="pToggleMode()">'+(mode==='input'?'주관식':'4지선다')+'</button>'+
+    '<button class="btn sm gh" onclick="go(\'#/phome\')">나가기</button></div>'+
+  (PP.t==='code'?pCodeBody(q,rec,shown,mode):pTermBody(q,rec,shown,mode))+
+  '<div style="height:78px"></div>'+
+  '<div class="sticky-bot"><div class="wrap row">'+
+    '<button class="btn" onclick="pMv(-1)" '+(PP.i?'':'disabled')+'>‹ 이전</button>'+
+    (shown?'':'<button class="btn gh sm" onclick="pSkip()">모르겠음</button>')+
+    '<div class="sp" style="flex:1"></div>'+
+    (shown?'<button class="btn pri" onclick="pMv(1)">'+(PP.i===PP.list.length-1?'결과 보기':'다음 ›')+'</button>'
+          :'<button class="btn pri" onclick="pSubmit()">채점</button>')+
+  '</div></div>';
+  const ta=document.getElementById('pAns');
+  if(ta&&!shown){ ta.focus();
+    ta.onkeydown=e=>{ if(e.key==='Enter'&&(PP.t==='term'||e.ctrlKey||e.metaKey)){e.preventDefault();pSubmit()} }; }
+}
+
+function pCodeBody(q,rec,shown,mode){
+  return '<div class="card">'+
+    '<div class="qhd"><span class="chip s1">'+q.lang+'</span><span class="chip">'+esc(q.kind)+'</span>'+
+      (q.sec>0?'<span class="chip">Section '+('00'+q.sec).slice(-3)+'</span>':'')+
+      '<div style="flex:1"></div>'+
+      (q.tr?'<span class="chip" style="color:var(--pu);border-color:#463a7a">추적표</span>':'')+'</div>'+
+    '<div class="stem" style="margin:6px 0 2px">다음 '+q.lang+' 프로그램의 <b>출력 결과</b>를 쓰시오.</div>'+
+    (q['in']?'<div class="tiny muted" style="margin:4px 0">입력값: <b>'+q['in'].join(', ')+'</b></div>':'')+
+    '<pre class="code">'+hl(q.code)+'</pre>'+
+    (shown?pCodeFb(q,rec):(mode==='input'
+      ?'<div class="tiny muted" style="margin:10px 0 5px">출력 결과 (여러 줄이면 줄바꿈 그대로)</div>'+
+       '<textarea class="ansbox" id="pAns" rows="'+Math.min(5,Math.max(1,q.a.split('\n').length))+'" spellcheck="false" autocapitalize="off"></textarea>'+
+       '<div class="tiny muted" style="margin-top:5px">Ctrl+Enter 로 채점</div>'
+      :'<div class="opts" style="margin-top:10px">'+q.opts.map((o,k)=>
+         '<button class="opt" onclick="pPickOpt('+(k+1)+')"><b>'+CIRC[k]+'</b><span style="font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap">'+esc(o)+'</span></button>').join('')+'</div>'))+
+  '</div>';
+}
+function pCodeFb(q,rec){
+  const ok=rec&&rec.ok, user=rec?rec.v:'', dg=ok?null:pDiag(user,q.a);
+  return '<div class="fb '+(ok?'ok':'no')+'" style="margin-top:12px"><b>'+(ok?'✔ 정답':'✘ 오답')+'</b></div>'+
+    (!ok?'<div class="tiny muted" style="margin:8px 0 2px">내 답</div><div class="outbox no">'+(esc(user)||'(없음)')+'</div>':'')+
+    '<div class="tiny muted" style="margin:8px 0 2px">정답 (실제 실행 결과)</div><div class="outbox ok">'+esc(q.a)+'</div>'+
+    (dg?'<div class="diag"><b>'+esc(dg.k)+'</b><br><span class="small">'+esc(dg.d)+'</span></div>':'')+
+    (q.tr?pTrace(q.tr):'<div class="tiny muted" style="margin-top:8px">이 문항은 자동 추적표가 없습니다. 코드를 한 줄씩 따라가 보세요.</div>')+
+    '<div class="row" style="margin-top:10px;gap:6px">'+
+      '<button class="btn sm gh" onclick="pCopyPrompt(\''+q.id+'\')">AI 해설 프롬프트 복사</button>'+
+      '<button class="btn sm gh" onclick="pRetry(\''+q.id+'\')">다시 풀기</button></div>';
+}
+function pTrace(tr){
+  const lab=tr.mode==='loop'?'반복 회차별 변수 추적':(tr.mode==='py'?'실행 단계별 변수 추적':'문장별 변수 추적');
+  return '<div class="tiny muted" style="margin:12px 0 3px">'+lab+(tr.trunc?' (앞 40단계)':'')+'</div>'+
+  '<div class="trwrap"><table class="tr"><thead><tr><th class="i">#</th>'+
+  tr.cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
+  tr.rows.map((r,i)=>'<tr><td class="i">'+(i+1)+'</td>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')+
+  '</tbody></table></div>';
+}
+function pTermBody(q,rec,shown,mode){
+  const ok=rec&&rec.ok;
+  return '<div class="card">'+
+    '<div class="qhd"><span class="chip" style="color:var(--pu);border-color:#463a7a">'+esc(q.dom)+'</span>'+
+      '<span class="chip">'+esc(q.src)+'</span><div style="flex:1"></div></div>'+
+    '<div class="stem" style="margin:8px 0">다음 설명에 해당하는 <b>용어</b>를 쓰시오.</div>'+
+    '<div class="outbox" style="font-family:inherit;font-size:14px;white-space:normal">'+esc(q.q)+'</div>'+
+    (shown
+      ?'<div class="fb '+(ok?'ok':'no')+'" style="margin-top:12px"><b>'+(ok?'✔ 정답':'✘ 오답')+'</b>'+
+       (rec&&rec.v?' — 내 답: '+esc(rec.v):'')+'</div>'+
+       '<div class="tiny muted" style="margin:10px 0 2px">정답</div>'+
+       '<div class="outbox ok" style="font-family:inherit">'+esc(q.ko)+(q.en?' ('+esc(q.en)+')':'')+'</div>'+
+       '<div class="tiny muted" style="margin-top:6px">출처: '+esc(q.src)+(q.more?' · '+esc(q.more):'')+'</div>'+
+       '<div class="row" style="margin-top:10px"><button class="btn sm gh" onclick="pRetry(\''+q.id+'\')">다시 풀기</button></div>'
+      :(mode==='input'
+        ?'<div class="tiny muted" style="margin:12px 0 5px">용어 (한글 또는 영문 약어)</div>'+
+         '<textarea class="ansbox" id="pAns" rows="1" spellcheck="false" autocapitalize="off"></textarea>'+
+         '<div class="tiny muted" style="margin-top:5px">Enter 로 채점</div>'
+        :'<div class="opts" style="margin-top:12px">'+q.opts.map((o,k)=>
+           '<button class="opt" onclick="pPickOpt('+(k+1)+')"><b>'+CIRC[k]+'</b><span>'+esc(o)+'</span></button>').join('')+'</div>'))+
+  '</div>';
+}
+function pPickOpt(k){
+  const q=PP.list[PP.i], val=q.opts[k-1], ok=(k===q.ans);
+  let pat='';
+  if(!ok) pat = (PP.t==='code') ? ((pDiag(val,q.a)||{}).k||'값이 다름') : '다른 용어와 혼동';
+  pRec(q,ok,val,pat); PP.shown[q.id]=1; pDraw();
+}
+function pSubmit(){
+  const q=PP.list[PP.i], ta=document.getElementById('pAns'), v=ta?ta.value:'';
+  if(PP.t==='code'){
+    const exact=(pn(v)===pn(q.a)), loose=(pnL(v)===pnL(q.a)), dg=pDiag(v,q.a);
+    pRec(q,exact||loose,v,exact?'':(dg?dg.k:''));
+    if(loose&&!exact) toast('값은 맞았습니다 — 공백·개행 차이');
+  }else pRec(q,pTermOk(v,q),v,'');
+  PP.shown[q.id]=1; pDraw();
+}
+function pCopyPrompt(id){
+  const q=PD.byId[id], rec=PS().ans[id];
+  const p='정보처리산업기사 실기 문제입니다. 아래 '+q.lang+' 코드의 실행 흐름을 한 줄씩, 변수값 변화표와 함께 한국어로 설명해 주세요.\n'+
+    '제가 쓴 답: '+(rec?rec.v:'(없음)')+'\n실제 정답: '+q.a+'\n제가 왜 틀렸는지, 어떤 개념을 착각한 것인지 짚어 주세요.\n\n```\n'+q.code+'\n```';
+  navigator.clipboard.writeText(p).then(()=>toast('프롬프트를 복사했습니다')).catch(()=>toast('복사에 실패했습니다'));
+}
+
+/* ── 코드 문제 브라우저 ───────────────────────────────── */
+async function vPCode(){
+  if(!await pLoad())return;
+  document.getElementById('hTitle').textContent='코드 출력 문제';
+  const A=PS().ans, done=PD.code.filter(q=>A[q.id]).length;
+  app().innerHTML=
+  '<div class="card tight"><div class="row small"><span style="flex:1">진행 <b>'+done+'</b> / '+PD.code.length+'</span>'+
+    '<span class="tiny muted">정답률 '+pStat('code').rate+'%</span></div>'+
+    '<div class="mini" style="margin-top:6px"><i style="width:'+(done/PD.code.length*100)+'%;background:var(--ac)"></i></div></div>'+
+  '<h2 class="sec">모아 풀기</h2><div class="grid2">'+
+    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=new&n=20\')">안 푼 문제 20개</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 문제 전부</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=random&n=30\')">랜덤 30문항</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=weak&n=20\')">취약 문법 20개</button></div>'+
+  '<h2 class="sec">언어</h2><div class="frow">'+PD.idx.code.langs.map(l=>
+    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=lang&k='+encodeURIComponent(l.k)+'\')">'+l.k+' <small>'+l.n+'</small></button>').join('')+'</div>'+
+  '<h2 class="sec">출처</h2><div class="frow">'+PD.idx.code.kinds.map(l=>
+    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=kind&k='+encodeURIComponent(l.k)+'\')">'+esc(l.k)+' <small>'+l.n+'</small></button>').join('')+'</div>'+
+  '<h2 class="sec">문법 유형</h2><div class="frow">'+PD.idx.code.tags.map(l=>
+    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(l.k)+'\')">'+esc(l.k)+' <small>'+l.n+'</small></button>').join('')+'</div>'+
+  '<h2 class="sec">교재 Section별</h2><div class="frow">'+PD.idx.code.secs.filter(s=>s.k>0).map(s=>
+    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=sec&k='+s.k+'\')">S'+('00'+s.k).slice(-3)+' <small>'+s.n+'</small></button>').join('')+'</div>'+
+  '<div style="height:20px"></div>';
+}
+
+/* ── 단답형 브라우저 ──────────────────────────────────── */
+async function vPTerm(){
+  if(!await pLoad())return;
+  document.getElementById('hTitle').textContent='단답형 용어';
+  const A=PS().ans, done=PD.term.filter(q=>A[q.id]).length;
+  app().innerHTML=
+  '<div class="card tight"><div class="row small"><span style="flex:1">진행 <b>'+done+'</b> / '+PD.term.length+'</span>'+
+    '<span class="tiny muted">정답률 '+pStat('term').rate+'%</span></div>'+
+    '<div class="mini" style="margin-top:6px"><i style="width:'+(done/PD.term.length*100)+'%;background:var(--pu)"></i></div></div>'+
+  '<h2 class="sec">모아 풀기</h2><div class="grid2">'+
+    '<button class="btn pri" onclick="go(\'#/pplay?t=term&mode=new&n=25\')">안 푼 용어 25개</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=wrong\')">틀린 용어 전부</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=random&n=30\')">랜덤 30문항</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=weak&n=20\')">취약 분야 집중</button></div>'+
+  '<h2 class="sec">분야</h2><div class="frow">'+PD.idx.term.doms.map(d=>
+    '<button class="fchip" onclick="go(\'#/pplay?t=term&mode=dom&k='+encodeURIComponent(d.k)+'&n=25\')">'+esc(d.k)+' <small>'+d.n+'</small></button>').join('')+'</div>'+
+  '<h2 class="sec">용어 사전</h2>'+
+  '<input id="pQ" class="ansbox" style="font-family:inherit;min-height:0;padding:9px 12px" placeholder="용어 · 설명 검색 (2글자 이상)" oninput="pSearch()">'+
+  '<div id="pRes"></div><div style="height:20px"></div>';
+}
+function pSearch(){
+  const v=(document.getElementById('pQ').value||'').trim().toLowerCase();
+  const box=document.getElementById('pRes');
+  if(v.length<2){box.innerHTML='';return}
+  const r=PD.term.filter(t=>(t.ko+' '+t.en+' '+t.def).toLowerCase().indexOf(v)>=0).slice(0,40);
+  box.innerHTML=r.length?r.map(t=>'<div class="card tight">'+
+      '<div class="row"><b style="flex:1">'+esc(t.ko)+'</b>'+(t.en?'<span class="tiny muted">'+esc(t.en)+'</span>':'')+'</div>'+
+      '<div class="small muted" style="margin-top:4px">'+esc(t.def)+'</div></div>').join('')
+    :'<div class="tiny muted" style="margin:8px 0">결과가 없습니다.</div>';
+}
+
+/* ── 실기 오답분석 ────────────────────────────────────── */
+function pPatTip(k){
+  if(k.indexOf('off-by-one')>=0) return '반복문 조건(&lt; vs &lt;=)과 배열 인덱스 시작값을 문제마다 먼저 확인하는 습관을 들이세요.';
+  if(k.indexOf('공백')>=0)       return '값은 맞히고 있으니 printf 서식 문자열(%3d, \\n, \\t)을 집중적으로 보세요.';
+  if(k.indexOf('정수 나눗셈')>=0) return 'int / int 는 버림입니다. 형변환이 있는지 매번 확인하세요.';
+  if(k.indexOf('줄 수')>=0)      return '개행이 반복문 안에 있는지 밖에 있는지가 핵심입니다.';
+  if(k.indexOf('순서')>=0)       return '반복 방향(증가/감소)과 중첩 반복의 안팎을 구분하세요.';
+  if(k.indexOf('부호')>=0)       return '뺄셈 순서와 음수 처리를 확인하세요.';
+  if(k.indexOf('자릿수')>=0)     return '누적 위치와 / 10, % 10 연산을 확인하세요.';
+  return '추적표를 켜 두고 첫 회차 값부터 직접 대조해 보세요.';
+}
+async function vPAna(){
+  if(!await pLoad())return;
+  document.getElementById('hTitle').textContent='실기 오답 분석';
+  const all=pStat(), tags=pTagStats(), pats=pPatStats();
+  if(!all.n){app().innerHTML='<div class="empty">아직 푼 문제가 없습니다.<br><br>'+
+    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=random&n=15\')">코드 15문항 풀어보기</button></div>';return}
+  const recent=Object.keys(PS().ans).map(id=>[id,PS().ans[id]]).filter(x=>!x[1].ok)
+    .sort((a,b)=>b[1].t-a[1].t).slice(0,10);
+  app().innerHTML=
+  '<div class="grid3">'+
+    '<div class="kpi"><div class="v">'+all.n+'</div><div class="k">푼 문제</div></div>'+
+    '<div class="kpi"><div class="v" style="color:'+(all.rate>=60?'var(--ok)':'var(--no)')+'">'+all.rate+'%</div><div class="k">정답률</div></div>'+
+    '<div class="kpi"><div class="v">'+(all.n-all.ok)+'</div><div class="k">오답</div></div></div>'+
+  (pats.length?'<h2 class="sec">오답 패턴 분포</h2><div class="card">'+pats.map(p=>
+    '<div style="margin:7px 0"><div class="row small"><span style="flex:1">'+esc(p.k)+'</span>'+
+    '<span class="tiny muted">'+p.v+'회</span></div>'+
+    '<div class="mini" style="margin-top:4px"><i style="width:'+(p.v/pats[0].v*100)+'%;background:var(--wn)"></i></div></div>').join('')+
+    '<div class="tiny muted" style="margin-top:10px">가장 잦은 패턴은 <b>'+esc(pats[0].k)+'</b>입니다. '+pPatTip(pats[0].k)+'</div></div>':'')+
+  (tags.length?'<h2 class="sec">문법 · 분야별 정답률 (낮은 순)</h2>'+tags.filter(t=>t.n>=2).slice(0,14).map(t=>
+    '<button class="lrow" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(t.t)+'\')">'+
+    '<span class="chip '+(t.rate>=70?'':'no')+'">'+t.rate+'%</span>'+
+    '<span class="g"><span class="t">'+esc(t.t)+'</span><span class="s">'+t.ok+'/'+t.n+' 정답</span></span>'+
+    '<span class="muted">›</span></button>').join(''):'')+
+  (recent.length?'<h2 class="sec">최근 오답</h2>'+recent.map(x=>{
+    const q=PD.byId[x[0]], a=x[1]; if(!q)return '';
+    return '<div class="card tight">'+
+      '<div class="row"><span class="chip s1">'+esc(q.lang||q.dom)+'</span>'+
+      '<span class="tiny muted" style="flex:1">'+esc(a.pat||'오답')+'</span></div>'+
+      (q.code?'<pre class="code" style="max-height:120px;overflow:auto;font-size:11.5px">'+
+              hl(q.code.split('\n').slice(0,6).join('\n'))+(q.code.split('\n').length>6?'\n…':'')+'</pre>'
+             :'<div class="small muted" style="margin:6px 0">'+esc(q.q.slice(0,110))+'…</div>')+
+      '<div class="row small"><span class="muted" style="flex:1">내 답 <b>'+(esc((a.v||'').split('\n')[0].slice(0,30))||'-')+'</b></span>'+
+      '<span style="color:var(--ok)">정답 <b>'+esc((q.a||q.ko).split('\n')[0].slice(0,30))+'</b></span></div></div>';
+  }).join(''):'')+
+  '<h2 class="sec">복습</h2><div class="grid2">'+
+    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 코드 다시 풀기</button>'+
+    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=wrong\')">틀린 용어 다시 풀기</button></div>'+
+  '<div style="height:20px"></div>';
+}
+
+/* ── 모드 전환 · 내비게이션 ───────────────────────────── */
+const PRAC_ROUTES=['phome','pcode','pplay','pterm','pana'];
+function isPrac(p){ return PRAC_ROUTES.indexOf(p)>=0 }
+function setMode(m){
+  try{localStorage.setItem('jbsg_mode',m)}catch(e){}
+  go(m==='prac'?'#/phome':'#/home');
+}
+function curMode(){
+  const p=(location.hash||'#/home').split('?')[0].split('/')[1]||'home';
+  return isPrac(p)?'prac':'written';
+}
+const NAV={
+  written:[['home','◎','홈'],['exams','✎','기출문제'],['summary','▤','핵심요약'],['analysis','◈','오답분석'],['notes','✦','학습노트']],
+  prac:   [['phome','◎','홈'],['pcode','⌨','코드출력'],['pterm','▤','단답형'],['pana','◈','오답분석'],['home','↩','필기로']]
+};
+function drawNav(p){
+  const m=curMode();
+  document.getElementById('navIn').innerHTML=NAV[m].map(x=>
+    '<a href="#/'+x[0]+'" data-tab="'+x[0]+'"><i>'+x[1]+'</i>'+x[2]+'</a>').join('');
+  const alias={pplay:'pcode'};
+  const t=alias[p]||p;
+  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',
+    a.dataset.tab===t||(m==='written'&&((p==='play'&&a.dataset.tab==='exams')
+    ||(['sec','glossary','new'].indexOf(p)>=0&&a.dataset.tab==='summary')
+    ||(p==='gen'&&a.dataset.tab==='analysis')||(p==='drill'&&a.dataset.tab==='notes')))));
+  const mt=document.getElementById('mTog');
+  if(mt) mt.innerHTML='<button class="'+(m==='written'?'on':'')+'" onclick="setMode(\'written\')">필기</button>'+
+                      '<button class="'+(m==='prac'?'on':'')+'" onclick="setMode(\'prac\')">실기</button>';
+}
+
 boot();
 </script>
 </body>
