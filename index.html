@@ -137,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},memBank:[],gaps:{},drillBank:[],drillMastered:{},ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -279,10 +279,10 @@ function route(){
   document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',
      x.dataset.tab===p||(p==='play'&&x.dataset.tab==='exams')||(p==='sec'&&x.dataset.tab==='summary')
      ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
-     ||(p==='memtest'&&x.dataset.tab==='notes')||(p==='drill'&&x.dataset.tab==='notes')));
+     ||(p==='drill'&&x.dataset.tab==='notes')));
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,notes:vNotes,memtest:vMemTest,drill:vDrill,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,settings:vSettings}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -765,8 +765,6 @@ async function copyNotePrompt(){
 const toArr=v=>Array.isArray(v)?v.map(z=>String(z)).filter(z=>z.trim()):(v?[String(v)]:[]);
 // AI가 만든 한 항목(x)을 기존 노트에 '병합'한다. 핵심: 값이 없는 필드는
 // 기존 값을 그대로 두어, 빈/부분 업로드가 이미 저장된 내용을 지우지 않게 한다.
-// 학습노트 필드(concept/memorize/compare/myConfusion/extra)와
-// 암기·테스트 필드(mustMemorize/quiz)를 한 파일이든 두 파일이든 모두 수용한다.
 function mergeNote(x){
   if(!x||typeof x!=='object')return false;
   const sec=+x.sec||0;
@@ -795,11 +793,6 @@ function mergeNote(x){
     wrongs:sec?relWrongs(sec):(prev?prev.wrongs:[]),
     updatedAt:Date.now()
   };
-  // 암기·테스트: 있으면 갱신, 없으면 기존 값 유지
-  if(Array.isArray(x.mustMemorize))n.mustMemorize=x.mustMemorize.map(String);
-  else if(prev&&prev.mustMemorize)n.mustMemorize=prev.mustMemorize;
-  if(x.quiz!==undefined){const q=validQuiz(x.quiz);n.quiz=q.length?q:((prev&&prev.quiz)||q)}
-  else if(prev&&prev.quiz)n.quiz=prev.quiz;
   return true;
 }
 function applyNotes(arr){let n=0;arr.forEach(x=>{if(mergeNote(x))n++});return n;}
@@ -825,104 +818,6 @@ function importNotes(){
   };
   inp.click();
 }
-
-/* ── 학습노트 기반 '반드시 암기 + 확인 테스트' (AI 생성) ──
-   저장된 학습노트를 재료로 AI가 개념별 필수 암기 항목(mustMemorize)과
-   4지선다 확인 문제(quiz)를 만들어 주면, 각 노트에 붙여 저장한다.
-   테스트는 기존 자동생성 문제 플레이어(drawGen)를 그대로 재사용한다. */
-// 저장된 노트를 담아 AI에게 줄 '암기·테스트' 프롬프트를 만든다.
-function reviewPrompt(){
-  const notes=Object.values(S.studyNotes).filter(n=>n.sec).sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,15);
-  if(!notes.length)return '';
-  const body=notes.map(n=>{
-    const mem=(n.memorize&&n.memorize.length?n.memorize:(n.keyPoints||[])).join(' / ');
-    const cmp=(n.compare&&n.compare.length?n.compare:toArr(n.confuse)).join(' / ');
-    return `### sec=${n.sec} | ${esc(n.title)} (${n.subjectNo}과목/${esc(n.unit||'')})
-- 개념: ${(n.concept||n.summary||'').replace(/\n/g,' ')}
-- 외울 내용: ${mem}
-- 비교: ${cmp}`;
-  }).join('\n\n');
-  return `너는 정보처리산업기사 필기 학습 코치다. 아래는 학습자가 정리한 개념별 학습노트다. 각 개념(sec)마다 두 가지를 만들어라.
-
-[학습노트]
-${body}
-
-[요구사항]
-1. mustMemorize : 시험 전 반드시 외워야 할 필수 암기 항목 3~6개(각 항목은 짧게 한 줄). 정의·공식·키워드·비교 포인트 위주.
-2. quiz : 제대로 학습됐는지 확인하는 4지선다 문제 2~3개. 각 문제는 {q(지문), options(보기 4개), answer(정답 번호 1~4), why(정답 해설)}.
-   - 위 '혼동' 포인트를 노린 매력적인 오답을 반드시 섞을 것.
-3. sec는 위에서 준 숫자를 그대로 되돌려준다.
-4. 결과를 아래 형식의 JSON 배열로 만들고 "review-pack.json" 이라는 이름의 내려받을 수 있는 파일로 출력한다. (설명 문장 없이 JSON 배열만)
-
-[{"sec":${notes[0].sec},"mustMemorize":["...","..."],"quiz":[{"q":"...","options":["①","②","③","④"],"answer":2,"why":"..."}]}]`;
-}
-function copyReviewPrompt(){
-  const p=reviewPrompt();
-  if(!p){toast('먼저 학습노트를 만들어 주세요');return}
-  navigator.clipboard.writeText(p).then(()=>toast('암기·테스트 프롬프트를 복사했습니다')).catch(()=>{
-    const t=document.createElement('textarea');t.value=p;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('암기·테스트 프롬프트를 복사했습니다')});
-}
-// quiz 항목 검증 — q/options(2개 이상)/answer(범위 내)가 갖춰진 것만 통과
-function validQuiz(arr){
-  if(!Array.isArray(arr))return [];
-  return arr.filter(z=>z&&typeof z.q==='string'&&Array.isArray(z.options)&&z.options.length>=2
-      &&+z.answer>=1&&+z.answer<=z.options.length)
-    .map(z=>({q:z.q,options:z.options.map(o=>String(o).replace(/^[①②③④]\s*/,'')),answer:+z.answer,why:z.why||''}));
-}
-// AI가 만든 암기·테스트 JSON 파일을 업로드해 각 학습노트에 붙인다.
-function importReview(){
-  const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
-  inp.onchange=e=>{
-    const f=e.target.files[0]; if(!f)return;
-    const r=new FileReader();
-    r.onload=()=>{
-      let data; try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
-      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.review)?data.review
-        :(data&&Array.isArray(data.items)?data.items:(data&&Array.isArray(data.notes)?data.notes:null)));
-      if(!arr){alert('암기·테스트 JSON 배열을 찾을 수 없습니다');return}
-      // mergeNote는 기존 학습노트 내용을 지우지 않고 mustMemorize/quiz만 덧붙인다
-      let cnt=0; arr.forEach(x=>{if(mergeNote(x))cnt++});
-      if(!cnt){alert('불러올 항목이 없습니다');return}
-      save(); toast(`${cnt}개 개념에 암기·테스트를 추가했습니다`); vNotes();
-    };
-    r.readAsText(f);
-  };
-  inp.click();
-}
-// 한 개념의 확인 테스트를 기존 문제 플레이어로 실행
-function startNoteQuiz(sec){
-  const n=S.studyNotes[String(sec)];
-  if(!n||!n.quiz||!n.quiz.length){toast('이 개념의 테스트 문제가 없습니다');return}
-  G.items=n.quiz.map(z=>({type:'ai',sec:n.sec||+sec||0,q:z.q,options:z.options,answer:z.answer,why:z.why||''}));
-  G.i=0;G.ans={};go('#/gen');
-}
-// 저장된 모든 노트의 테스트를 섞어서 실행
-function startAllQuiz(){
-  const items=[];
-  Object.values(S.studyNotes).forEach(n=>(n.quiz||[]).forEach(z=>
-    items.push({type:'ai',sec:n.sec||0,q:z.q,options:z.options,answer:z.answer,why:z.why||''})));
-  if(!items.length){toast('테스트 문제가 없습니다. 먼저 암기·테스트를 생성하세요');return}
-  G.items=shuffle(items);G.i=0;G.ans={};go('#/gen');
-}
-
-/* ══════════════════════════════════════════════════════════
-   10-c. 암기 빈칸 테스트
-   학습노트의 '외울 내용(memorize)'·'반드시 암기(mustMemorize)' 항목을
-   모아 일부를 빈칸으로 만들고, 직접 타이핑해 정답과 비교한다.
-   ══════════════════════════════════════════════════════════ */
-let M={items:null,i:0,res:{},hint:{},draft:{}};
-// 모든 노트에서 암기 항목을 모은다 (중복 제거)
-function memItems(){
-  const out=[], seen=new Set();
-  Object.values(S.studyNotes).forEach(n=>{
-    const add=t=>{const s=String(t==null?'':t).trim(); if(s.length<4)return;
-      const k=s.replace(/\s+/g,''); if(seen.has(k))return; seen.add(k);
-      out.push({text:s,src:n.title||'',sec:n.sec||0})};
-    (n.memorize||[]).forEach(add);
-    (n.mustMemorize||[]).forEach(add);
-  });
-  return out;
-}
 // 요약집 원문을 AI에게 줄 다이제스트로 압축한다. ([번호] 제목: 내용 | 내용 …)
 function memDigest(subj){
   if(!D.summary)return '';
@@ -939,107 +834,6 @@ function memDigest(subj){
   });
   return lines.join('\n');
 }
-// AI에게 줄 '암기 빈칸 문제 생성' 프롬프트
-function memPrompt(subj){
-  const dig=memDigest(subj);
-  if(!dig)return '';
-  return `너는 정보처리산업기사 필기 암기 문제 출제자다. 아래 [요약집]의 내용만을 근거로, 핵심을 외웠는지 확인하는 '빈칸 채우기' 암기 문제를 만들어라.
-
-[요약집]  (형식: [번호] 제목: 내용 | 내용 | …)
-${dig}
-
-[문제 형식]  각 문제는 한 곳만 "____"(밑줄 4개)로 가린다. answer는 그 빈칸에 들어갈 짧은 정답이다. 아래 3가지 형태만 쓴다.
-1) 이름 맞히기 : 설명을 주고 이름을 가림 → "____ : (설명)"   (※ 이름을 주고 설명을 쓰게 하지 말 것)
-2) 순서       : "A → B → ____ → D" 처럼 순서 항목 하나를 가림
-3) 분류→나열  : "분류 : a, ____, c" 처럼 나열 항목 하나를 가림
-
-[규칙]
-- 코드·SQL·프로그래밍 문법·계산/예제(회전·이동순서 등)·표/그림 설명 문제는 만들지 말 것.
-- cue에는 "____"를 정확히 한 개만 포함한다. answer는 30자 이내의 짧은 정답.
-- sec에는 위 [번호]를 그대로 넣는다.
-- 아래 형식의 JSON 배열만 "memcards.json" 파일로 출력한다(설명 문장 없이).
-
-[{"sec":4,"cue":"____ : 한 개의 CPU로 여러 개의 프로그램을 동시에 처리하는 방식","answer":"다중 프로그래밍 시스템"}]`;
-}
-function copyMemPrompt(){
-  const p=memPrompt(MB.subj);
-  if(!p){toast('요약 데이터가 아직 준비되지 않았습니다');return}
-  navigator.clipboard.writeText(p).then(()=>toast('암기 문제 프롬프트를 복사했습니다')).catch(()=>{
-    const t=document.createElement('textarea');t.value=p;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('암기 문제 프롬프트를 복사했습니다')});
-}
-// AI가 만든 memcards.json을 업로드해 문제 은행(S.memBank)에 합친다.
-function importMemBank(){
-  const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
-  inp.onchange=e=>{
-    const f=e.target.files[0]; if(!f)return; const r=new FileReader();
-    r.onload=()=>{
-      let data; try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
-      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.cards)?data.cards:(data&&Array.isArray(data.items)?data.items:null));
-      if(!arr){alert('문제 JSON 배열을 찾을 수 없습니다');return}
-      const seen=new Set((S.memBank||[]).map(x=>(x.cue+'|'+x.answer).replace(/\s+/g,'')));
-      let n=0;
-      arr.forEach(x=>{
-        if(!x||typeof x!=='object')return;
-        let cue=String(x.cue||'').trim(), answer=String(x.answer||'').trim();
-        cue=cue.replace(/[_＿]{2,}|\(\s*\)|□|◯|〇/g,'____');   // 다양한 빈칸 표기 정규화
-        if(cue.indexOf('____')<0||answer.length<1||answer.length>30)return;
-        const key=(cue+'|'+answer).replace(/\s+/g,''); if(seen.has(key))return; seen.add(key);
-        const sec=+x.sec||0, meta=sec&&D.sec[sec]?D.sec[sec]:null;
-        S.memBank.push({cue,answer,sec:sec||0,src:meta?meta.title:(x.src||''),full:cue.replace('____',answer)});
-        n++;
-      });
-      if(!n){alert('불러올 문제가 없습니다');return}
-      save(); toast(`${n}개 암기 문제를 추가했습니다`); MTscope='ai'; vMemTest();
-    };
-    r.readAsText(f);
-  };
-  inp.click();
-}
-function clearMemBank(){if(!confirm('저장된 AI 암기 문제를 모두 지울까요?'))return;S.memBank=[];save();vMemTest()}
-// 문제 은행 항목을 플레이어용 형태로 변환
-function memBankItems(){
-  return (S.memBank||[]).map(x=>({text:x.full||x.cue,src:x.src||(x.sec&&D.sec[x.sec]?D.sec[x.sec].title:''),sec:x.sec||0,origin:'ai',
-    cloze:{cue:x.cue,answer:x.answer,full:x.full||x.cue.replace('____',x.answer),label:x.src||''}}));
-}
-let MTscope='all', MB={subj:0};   // MTscope: 'ai' | 'notes' | 'all'  /  MB.subj: 0=전체,1~3=과목
-// 범위에 맞는 최종 문제 풀(각 항목에 cloze 포함)을 만든다.
-function buildMemPool(scope){
-  const notes=memItems().map(it=>Object.assign({},it,{cloze:makeCloze(it.text),origin:'note'}));
-  const ai=memBankItems();
-  if(scope==='notes')return notes;
-  if(scope==='ai')return ai;
-  return ai.concat(notes);
-}
-// 한 항목을 빈칸 문제로 만든다.
-//  · "라벨: 내용" 이면 라벨(주제)은 남기고 내용 안에서만 빈칸을 낸다
-//  · 목록 구분자(슬래시·쉼표)를 먼저, 화살표('IP→MAC'처럼 내용일 수 있음)는 뒤에 시도
-//  · 가장 긴(=의미 있는) 조각을 ____ 로 가린다
-function clozeSplit(str,list){
-  for(const sep of list){
-    if(str.indexOf(sep)<0)continue;
-    const raw=str.split(sep);
-    const parts=raw.map(s=>s.trim()).filter(Boolean);
-    if(parts.length<2)continue;
-    let bi=0; raw.forEach((p,i)=>{if(p.trim().length>raw[bi].trim().length)bi=i});
-    const ans=raw[bi].trim(); if(ans.length<2)continue;
-    return {cue:raw.map((p,i)=>i===bi?p.replace(p.trim(),'____'):p).join(sep),answer:ans};
-  }
-  return null;
-}
-function makeCloze(text){
-  let label='', body=text;
-  const idx=(()=>{const a=[text.indexOf(':'),text.indexOf('：')].filter(x=>x>0);return a.length?Math.min(...a):-1})();
-  if(idx>0&&idx<text.length-1){
-    const l=text.slice(0,idx).trim();
-    if(l.length<=22){label=l; body=text.slice(idx+1).trim()}  // 짧은 라벨만 주제로 인정
-  }
-  const r=clozeSplit(body,['/','；',';','，',','])||clozeSplit(body,['→','->']);
-  if(r)return {cue:(label?label+': ':'')+r.cue, answer:r.answer, full:text, label};
-  // 목록 구분자가 없으면: 라벨(이름)이 있으면 설명을 주고 이름을 맞히게 한다
-  // (이름을 보고 긴 설명을 작성하는 문제는 만들지 않는다)
-  if(label)return {cue:'____ : '+body, answer:label, full:text, label:''};
-  return {cue:text.slice(0,2)+'… ____ (전체 입력)', answer:text, full:text, label:''};
-}
 // 채점용 정규화: 공백·구두점 제거 + 소문자
 function normA(s){return String(s==null?'':s).replace(/\s+/g,'').replace(/[·.,()\[\]{}'"`~\-_/:=→]/g,'').toLowerCase()}
 // 입력값 v가 정답 ans와 일치하는가 (괄호 부연 제외·구두점 무시)
@@ -1048,129 +842,6 @@ function ansMatch(v,ans){
   const variants=[ans, String(ans).replace(/\([^)]*\)/g,''), String(ans).replace(/[^가-힣a-zA-Z0-9]/g,'')];
   return variants.some(a=>normA(v)===normA(a));
 }
-// 간단 문자 유사도(0~1)
-function simRatio(a,b){
-  a=normA(a); b=normA(b); if(!a&&!b)return 1; if(!a||!b)return 0;
-  const bc=b.split(''), used=new Array(bc.length).fill(false); let hit=0;
-  for(const ch of a){const j=bc.findIndex((c,k)=>!used[k]&&c===ch); if(j>=0){used[j]=true;hit++}}
-  return hit/Math.max(a.length,b.length);
-}
-function vMemTest(){
-  if(M.items)return drawMem();
-  const aiN=(S.memBank||[]).length, nN=memItems().length, aN=aiN+nN;
-  const cnt={ai:aiN,notes:nN,all:aN}[MTscope];
-  app().innerHTML=`
-  <h2 class="sec">암기 빈칸 테스트</h2>
-  <div class="card small muted"><b>AI가 만든 암기 문제</b>와 학습노트의 <b>외울 내용·반드시 암기</b>를 모아,
-  일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다.</div>
-
-  <h2 class="sec">AI로 암기 문제 만들기</h2>
-  <div class="card tight">
-    <div class="small muted" style="margin-bottom:8px"><b>프롬프트 복사</b> → <b>Claude·ChatGPT</b>에 붙여넣기 →
-    받은 <b>memcards.json 파일 업로드</b>. 요약집 내용을 기반으로 빈칸 문제를 만듭니다. 과목별로 나눠 만들 수 있습니다.</div>
-    <div class="tiny muted" style="margin:2px 0 4px">프롬프트 범위</div>
-    <div class="pill">${[[0,'전체'],[1,'1과목'],[2,'2과목'],[3,'3과목']].map(([v,l])=>`<button class="${MB.subj===v?'on':''}" onclick="MB.subj=${v};vMemTest()">${l}</button>`).join('')}</div>
-    <div class="grid2" style="margin-top:10px">
-      <button class="btn pri" onclick="copyMemPrompt()">프롬프트 복사</button>
-      <button class="btn" onclick="importMemBank()">memcards.json 업로드</button>
-    </div>
-    ${aiN?`<button class="btn gh sm" style="width:100%;margin-top:8px;color:var(--no)" onclick="clearMemBank()">저장된 AI 문제 ${aiN}개 초기화</button>`:''}
-  </div>
-
-  <h2 class="sec">출제 범위</h2>
-  <div class="pill">
-    <button class="${MTscope==='all'?'on':''}" onclick="MTscope='all';vMemTest()">전체 (${aN})</button>
-    <button class="${MTscope==='ai'?'on':''}" onclick="MTscope='ai';vMemTest()">AI 문제 (${aiN})</button>
-    <button class="${MTscope==='notes'?'on':''}" onclick="MTscope='notes';vMemTest()">내 노트 (${nN})</button>
-  </div>
-  ${cnt?`<button class="btn pri" style="width:100%;padding:13px;margin-top:12px" onclick="startMemTest()">시작하기 (${cnt}문항)</button>`
-    :`<div class="empty" style="margin-top:10px">이 범위에 문제가 없습니다.<br>위에서 <b>AI로 암기 문제를 만들어</b> 업로드하거나 다른 범위를 선택하세요.</div>`}
-  <div style="height:24px"></div>`;
-}
-function startMemTest(){
-  const items=buildMemPool(MTscope);
-  if(!items.length){toast('이 범위에 암기 항목이 없습니다');return}
-  M.items=shuffle(items); M.i=0; M.res={}; M.hint={}; M.draft={}; drawMem();
-}
-// 정답의 힌트를 만든다: 한글은 초성, 영문/숫자는 '첫 글자 + 나머지 밑줄'
-//  예) "FCFS" → "F _ _ _" · "전송 계층" → "ㅈㅅ ㄱㅊ"
-const CHO=['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
-function hintOf(answer){
-  const a=(answer||'').replace(/\([^)]*\)/g,'').trim()||answer||'';  // 괄호 부연 제외
-  let out='', seenLatin=false;
-  for(const ch of a){
-    const c=ch.charCodeAt(0);
-    if(c>=0xAC00&&c<=0xD7A3){ out+=CHO[Math.floor((c-0xAC00)/588)]; }   // 한글 → 초성
-    else if(/[A-Za-z0-9]/.test(ch)){ out+= seenLatin?' _':ch.toUpperCase(); seenLatin=true; } // 영문/숫자 → 첫 글자+밑줄
-    else { out+=ch; }   // 공백·기호는 그대로
-  }
-  return out.trim();
-}
-function showHint(){
-  const el=document.getElementById('memIn'); if(el)M.draft[M.i]=el.value;   // 입력 중이던 내용 보존
-  M.hint[M.i]=true; drawMem();
-}
-function drawMem(){
-  const it=M.items[M.i], r=M.res[M.i];
-  const ht=document.getElementById('hTitle'); if(ht)ht.textContent='암기 빈칸 테스트';
-  app().innerHTML=`
-  <div class="row" style="margin:12px 0 4px">
-    <span class="tiny muted">${M.i+1} / ${M.items.length}</span>
-    <div class="bar" style="flex:1"><i style="width:${(M.i+1)/M.items.length*100}%"></i></div>
-    <button class="btn sm gh" onclick="M.items=null;go('#/notes')">나가기</button>
-  </div>
-  <div class="card">
-    <div class="qhd"><span class="chip">암기</span>${it.src?`<span class="chip">${esc(it.src)}</span>`:(it.sec?`<span class="chip">${esc(secTitle(it.sec))}</span>`:'')}</div>
-    <div class="tiny muted" style="margin-top:6px">${esc((it.src||secTitle(it.sec)||'암기 항목'))} 관련 · 빈칸(____)에 들어갈 내용을 입력하세요</div>
-    <div class="stem" style="margin-top:4px"><p style="white-space:pre-wrap;line-height:1.75">${esc(it.cloze.cue)}</p></div>
-    <textarea id="memIn" style="margin-top:8px" placeholder="빈칸에 들어갈 내용을 입력하세요" ${r?'disabled':''}>${r?esc(r.typed):esc(M.draft[M.i]||'')}</textarea>
-    ${!r?`${M.hint[M.i]?`<div class="tiny" style="margin-top:7px;color:var(--ac)">💡 힌트 &nbsp;<b style="font-size:15px;letter-spacing:2px">${esc(hintOf(it.cloze.answer))}</b></div>`:''}
-      <div class="row" style="gap:8px;margin-top:8px">
-        <button class="btn pri" style="flex:2" onclick="checkMem()">확인</button>
-        <button class="btn" style="flex:1" ${M.hint[M.i]?'disabled':''} onclick="showHint()">💡 힌트</button>
-        <button class="btn gh" style="flex:1" onclick="memMv(1)">건너뛰기 →</button>
-      </div>`
-      :`<div class="fb ${r.ok?'ok':'no'}" style="margin-top:8px">
-        <b>${r.ok?'✔ 정답':'✘ 다시 확인'}</b>${r.ok?'':` · 일치율 ${Math.round(r.sim*100)}%`}
-        <div class="small" style="margin-top:6px">정답 &nbsp;<b style="color:var(--ok)">${esc(it.cloze.answer)}</b></div>
-        ${r.ok?'':`<div class="small" style="margin-top:3px">입력 &nbsp;<span style="color:var(--no)">${esc(r.typed||'(빈칸)')}</span></div>
-        <button class="btn sm" style="margin-top:8px" onclick="acceptMem()">맞게 외웠음으로 처리</button>`}
-        <div class="tiny muted" style="margin-top:8px">전체 · ${esc(it.cloze.full)}</div>
-      </div>
-      <button class="btn pri" style="width:100%;margin-top:10px" onclick="memMv(1)">${M.i===M.items.length-1?'끝내기 ✓':'다음 문제 →'}</button>`}
-  </div>
-  <div style="height:70px"></div>
-  <div class="sticky-bot"><div class="wrap row">
-    <button class="btn" onclick="memMv(-1)" ${M.i?'':'disabled'}>‹ 이전</button><div style="flex:1"></div>
-    <button class="btn ${r?'pri':''}" onclick="memMv(1)">${M.i===M.items.length-1?'끝내기':'다음 ›'}</button>
-  </div></div>`;
-  if(!r){const el=document.getElementById('memIn'); if(el){el.focus();
-    el.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')checkMem()}}}
-}
-function checkMem(){
-  const el=document.getElementById('memIn'); if(!el)return;
-  const v=el.value.trim(), it=M.items[M.i], ans=it.cloze.answer;
-  const ok=ansMatch(v,ans);   // 괄호 부연 제외·구두점 무시 매칭
-  M.res[M.i]={typed:v,ok,sim:simRatio(v,ans)};
-  drawMem();
-}
-function acceptMem(){if(M.res[M.i]){M.res[M.i].ok=true;drawMem()}}
-function memMv(d){
-  if(M.i+d>=M.items.length){
-    const ok=Object.values(M.res).filter(x=>x.ok).length, tot=Object.keys(M.res).length;
-    M.items=null;
-    app().innerHTML=`<h2 class="sec">암기 테스트 결과</h2>
-      <div class="grid3"><div class="kpi"><div class="v">${tot}</div><div class="k">푼 항목</div></div>
-      <div class="kpi"><div class="v" style="color:var(--ok)">${ok}</div><div class="k">맞음</div></div>
-      <div class="kpi"><div class="v">${tot?Math.round(ok/tot*100):0}%</div><div class="k">정답률</div></div></div>
-      <div class="grid2" style="margin-top:14px"><button class="btn" onclick="startMemTest()">다시 풀기</button>
-      <button class="btn pri" onclick="go('#/notes')">학습노트로</button></div>
-      <div style="height:24px"></div>`;
-    return;
-  }
-  M.i=Math.max(0,M.i+d); drawMem();
-}
-
 /* ══════════════════════════════════════════════════════════
    10-d. 순서·개념 암기 테스트 (별도 페이지)
      · 순서형(seq)   : 화살표만 남기고 각 항목을 직접 채운다
@@ -1242,10 +913,11 @@ function clearDrill(){if(!(S.drillBank||[]).length){toast('삭제할 세트가 �
 let DB={subj:0,scope:'all',sel:{}};   // subj:프롬프트 과목 / scope:풀 범위 / sel:선택된 세트
 let DR={items:null,i:0,res:{},hint:{},order:{},draft:{}};   // 플레이어 상태 (hint:힌트표시 / order:섞인 정답 / draft:입력보존)
 const drillId=x=>x.type+'|'+(x.title||'');
-// 현재 범위(전체/미암기/선택)에 해당하는 세트 목록
+// 현재 범위(전체/안 푼/틀림/선택)에 해당하는 세트 목록
 function drillPool(){
   const bank=S.drillBank||[];
-  if(DB.scope==='unmastered')return bank.filter(x=>!S.drillMastered[drillId(x)]);
+  if(DB.scope==='todo')return bank.filter(x=>{const id=drillId(x);return !S.drillMastered[id]&&!S.drillWrong[id]});   // 아직 안 푼 세트
+  if(DB.scope==='wrong')return bank.filter(x=>S.drillWrong[drillId(x)]);   // 틀린 세트
   if(DB.scope==='select')return bank.filter(x=>DB.sel[drillId(x)]);
   return bank.slice();
 }
@@ -1253,9 +925,11 @@ function drillToggle(i){const x=(S.drillBank||[])[i];if(!x)return;const id=drill
 function drillSelAll(on){if(on)(S.drillBank||[]).forEach(x=>DB.sel[drillId(x)]=true);else DB.sel={};vDrill()}
 function vDrill(){
   if(DR.items)return drawDrill();
-  const bank=S.drillBank||[], n=bank.length, seqN=bank.filter(x=>x.type==='seq').length, grpN=n-seqN;
+  const bank=S.drillBank||[], n=bank.length;
   const masteredN=bank.filter(x=>S.drillMastered[drillId(x)]).length;
-  const unN=n-masteredN, selN=bank.filter(x=>DB.sel[drillId(x)]).length;
+  const wrongN=bank.filter(x=>S.drillWrong[drillId(x)]).length;
+  const doneN=bank.filter(x=>{const id=drillId(x);return S.drillMastered[id]||S.drillWrong[id]}).length;
+  const todoN=n-doneN, selN=bank.filter(x=>DB.sel[drillId(x)]).length;
   const poolN=drillPool().length;
   app().innerHTML=`
   <h2 class="sec">순서·개념 암기 테스트</h2>
@@ -1276,25 +950,27 @@ function vDrill(){
 
   ${n?`
   <h2 class="sec">풀 범위</h2>
+  <div class="card tight small muted" style="margin-bottom:6px">진행: <b>완료 ${doneN}/${n}</b>${masteredN?` · ✅ 외움 ${masteredN}`:''}${wrongN?` · ✘ 틀림 ${wrongN}`:''}${todoN?` · 안 푼 ${todoN}`:''}</div>
   <div class="pill">
     <button class="${DB.scope==='all'?'on':''}" onclick="DB.scope='all';vDrill()">전체 (${n})</button>
-    <button class="${DB.scope==='unmastered'?'on':''}" onclick="DB.scope='unmastered';vDrill()">미암기 (${unN})</button>
+    <button class="${DB.scope==='todo'?'on':''}" onclick="DB.scope='todo';vDrill()">안 푼 (${todoN})</button>
+    <button class="${DB.scope==='wrong'?'on':''}" onclick="DB.scope='wrong';vDrill()">틀림 (${wrongN})</button>
     <button class="${DB.scope==='select'?'on':''}" onclick="DB.scope='select';vDrill()">선택 (${selN})</button>
   </div>
-  ${masteredN?`<div style="text-align:right;margin:2px 0"><button class="btn gh sm" onclick="if(confirm('외움 표시를 모두 초기화할까요?')){S.drillMastered={};save();vDrill()}">외움 표시 초기화 (${masteredN})</button></div>`:''}
+  ${doneN?`<div style="text-align:right;margin:2px 0"><button class="btn gh sm" onclick="if(confirm('진행·틀림 기록을 모두 초기화할까요?')){S.drillMastered={};S.drillWrong={};save();vDrill()}">진행·틀림 기록 초기화</button></div>`:''}
   ${DB.scope==='select'?`
     <div class="row" style="gap:6px;margin:4px 0 6px">
       <div class="tiny muted" style="flex:1;align-self:center">풀고 싶은 세트를 고르세요</div>
       <button class="btn gh sm" onclick="drillSelAll(true)">전체 선택</button>
       <button class="btn gh sm" onclick="drillSelAll(false)">해제</button>
     </div>
-    ${bank.map((x,i)=>{const id=drillId(x),on=!!DB.sel[id],m=!!S.drillMastered[id];
+    ${bank.map((x,i)=>{const id=drillId(x),on=!!DB.sel[id],m=!!S.drillMastered[id],w=!!S.drillWrong[id];
       return `<button class="lrow" style="margin:5px 0" onclick="drillToggle(${i})">
         <span class="chip ${on?'ok':''}">${on?'✓':'○'}</span>
         <span class="g"><span class="t">${esc(x.title)}</span>
-          <span class="s">${x.type==='seq'?'순서 '+x.items.length+'개':'개념군 '+x.pairs.length+'개'}${m?' · ✅ 외움':''}</span></span></button>`}).join('')}`:''}
+          <span class="s">${x.type==='seq'?'순서 '+x.items.length+'개':'개념군 '+x.pairs.length+'개'}${m?' · ✅ 외움':w?' · ✘ 틀림':''}</span></span></button>`}).join('')}`:''}
   ${poolN?`<button class="btn pri" style="width:100%;padding:13px;margin-top:10px" onclick="startDrill()">시작하기 (${poolN}세트)</button>`
-    :`<div class="empty" style="margin-top:10px">${DB.scope==='select'?'선택한 세트가 없습니다. 세트를 골라 주세요.':DB.scope==='unmastered'?'미암기 세트가 없습니다. 모두 외웠어요! 🎉':'세트가 없습니다.'}</div>`}`
+    :`<div class="empty" style="margin-top:10px">${DB.scope==='select'?'선택한 세트가 없습니다. 세트를 골라 주세요.':DB.scope==='wrong'?'틀린 세트가 없습니다. 👍':DB.scope==='todo'?'안 푼 세트가 없습니다. 모두 풀었어요! 🎉':'세트가 없습니다.'}</div>`}`
   :`<div class="empty" style="margin-top:10px">저장된 암기 세트가 없습니다.<br>위에서 <b>AI로 만들어</b> drill.json을 업로드하세요.</div>`}
   <div style="height:24px"></div>`;
 }
@@ -1371,21 +1047,29 @@ function checkDrill(){
   const answers=[], oks=[];
   targets.forEach((ans,j)=>{const el=document.getElementById('dr_'+j);const v=el?el.value.trim():'';answers.push(v);oks.push(ansMatch(v,ans))});
   DR.res[DR.i]={answers,oks};
-  // 세트를 전부 맞히면 '외움'으로 기록, 하나라도 틀리면 미암기로 되돌린다
+  // 진행 기록: 전부 맞히면 '외움', 하나라도 틀리면 '틀림'으로 저장
   const id=drillId(it);
-  if(oks.length&&oks.every(Boolean))S.drillMastered[id]=true; else delete S.drillMastered[id];
+  if(oks.length&&oks.every(Boolean)){S.drillMastered[id]=true; delete S.drillWrong[id]}
+  else {S.drillWrong[id]=true; delete S.drillMastered[id]}
   save(); drawDrill();
 }
 function drillMv(d){
   if(DR.i+d>=DR.items.length){
     let tot=0,ok=0; Object.values(DR.res).forEach(r=>{tot+=r.oks.length;ok+=r.oks.filter(Boolean).length});
+    // 이번 회차에서 틀린(=전부 맞히지 못한) 세트 목록
+    const wrongSets=DR.items.filter((it,i)=>{const r=DR.res[i];return !r||!r.oks.every(Boolean)});
     DR.items=null;
+    const wrongTotal=(S.drillBank||[]).filter(x=>S.drillWrong[drillId(x)]).length;
     app().innerHTML=`<h2 class="sec">암기 테스트 결과</h2>
       <div class="grid3"><div class="kpi"><div class="v">${tot}</div><div class="k">빈칸</div></div>
       <div class="kpi"><div class="v" style="color:var(--ok)">${ok}</div><div class="k">맞음</div></div>
       <div class="kpi"><div class="v">${tot?Math.round(ok/tot*100):0}%</div><div class="k">정답률</div></div></div>
-      <div class="grid2" style="margin-top:14px"><button class="btn" onclick="startDrill()">다시 풀기</button>
-      <button class="btn pri" onclick="go('#/notes')">학습노트로</button></div>
+      ${wrongSets.length?`<div class="card tight" style="margin-top:12px"><div class="small muted" style="margin-bottom:4px">✘ 틀린 세트 (${wrongSets.length})</div>
+        ${wrongSets.map(it=>`<div class="tiny" style="margin:2px 0"><span class="chip no" style="padding:1px 6px">${it.type==='seq'?'순서':'개념군'}</span> ${esc(it.title)}</div>`).join('')}</div>`
+        :`<div class="card tight small" style="margin-top:12px;color:var(--ok)">이 회차의 세트를 모두 맞혔습니다! 🎉</div>`}
+      ${wrongTotal?`<button class="btn pri" style="width:100%;margin-top:12px" onclick="DB.scope='wrong';startDrill()">✘ 틀린 세트 다시 풀기 (${wrongTotal})</button>`:''}
+      <div class="grid2" style="margin-top:8px"><button class="btn" onclick="go('#/drill')">범위 다시 고르기</button>
+      <button class="btn gh" onclick="go('#/notes')">학습노트로</button></div>
       <div style="height:24px"></div>`;
     return;
   }
@@ -1398,8 +1082,6 @@ async function vNotes(){
   await Promise.all([...new Set(wrongIds.map(i=>i.slice(0,6)))].map(getExam));
   const all=Object.values(S.studyNotes).sort((a,b)=>(b.score||0)-(a.score||0));
   const revN=all.filter(n=>n.reviewed).length;
-  const quizN=all.filter(n=>n.quiz&&n.quiz.length).length;
-  const memN=memItems().length;
   const weakN=weakList(NF.min).length;
   const list=NF.only?all.filter(n=>!n.reviewed):all;
   const kindLabel={misread:'착각',missed:'놓침',topic:'주제'};
@@ -1420,26 +1102,6 @@ async function vNotes(){
       <button class="btn pri" onclick="copyNotePrompt()">${weakN?'① 프롬프트 복사':'취약 개념 없음'}</button>
       <button class="btn" onclick="importNotes()">③ JSON 파일 업로드</button>
     </div>
-  </div>
-
-  ${all.length?`
-  <h2 class="sec">AI로 암기·테스트 만들기</h2>
-  <div class="card tight">
-    <div class="small muted" style="margin-bottom:8px">저장된 학습노트를 바탕으로 개념별
-    <b>반드시 암기할 내용</b>과 <b>확인 테스트 문제</b>를 만듭니다.
-    프롬프트를 복사해 AI에 넣고, 받은 <b>review-pack.json 파일을 업로드</b>하면 각 노트에 추가됩니다.</div>
-    <div class="grid2">
-      <button class="btn pri" onclick="copyReviewPrompt()">② 암기·테스트 프롬프트 복사</button>
-      <button class="btn" onclick="importReview()">④ review-pack.json 업로드</button>
-    </div>
-    ${quizN?`<button class="btn" style="width:100%;margin-top:8px" onclick="startAllQuiz()">🧪 저장된 테스트 전체 풀기 (${quizN}개 개념)</button>`:''}
-  </div>`:''}
-
-  <h2 class="sec">암기 빈칸 테스트</h2>
-  <div class="card tight">
-    <div class="small muted" style="margin-bottom:8px"><b>AI가 만든 암기 문제</b>와 노트의 <b>외울 내용·반드시 암기</b>를 모아,
-    일부를 빈칸으로 만들어 직접 타이핑하고 <b>정답과 비교</b>합니다. ${memN?`(내 노트 ${memN}개 포함)`:''}</div>
-    <button class="btn pri" style="width:100%" onclick="go('#/memtest')">🖊 암기 빈칸 테스트 시작</button>
   </div>
 
   <h2 class="sec">순서·개념 암기 테스트</h2>
@@ -1469,7 +1131,7 @@ async function vNotes(){
         </div>
         <button class="btn sm ${n.reviewed?'pri':'gh'}" onclick="toggleReviewed('${n.no}')">${n.reviewed?'✔ 복습완료':'복습 체크'}</button>
       </div>
-      ${!(n.concept||(n.memorize&&n.memorize.length)||(n.compare&&n.compare.length)||(n.extra&&n.extra.length)||n.myConfusion||(n.mustMemorize&&n.mustMemorize.length)||(n.quiz&&n.quiz.length)||n.summary||(n.keyPoints&&n.keyPoints.length)||n.confuse||(n.bullets&&n.bullets.length))?`<div class="tiny" style="margin-top:9px;color:var(--wn)">⚠ 학습 내용이 비어 있습니다. 위에서 <b>프롬프트를 복사</b>해 다시 생성한 뒤 파일을 업로드하세요.</div>`:''}
+      ${!(n.concept||(n.memorize&&n.memorize.length)||(n.compare&&n.compare.length)||(n.extra&&n.extra.length)||n.myConfusion||n.explain||n.summary||(n.keyPoints&&n.keyPoints.length)||n.confuse||(n.bullets&&n.bullets.length))?`<div class="tiny" style="margin-top:9px;color:var(--wn)">⚠ 학습 내용이 비어 있습니다. 위에서 <b>프롬프트를 복사</b>해 다시 생성한 뒤 파일을 업로드하세요.</div>`:''}
       ${n.concept?`<div class="small" style="margin-top:9px"><b class="muted">💡 핵심 개념</b>
         <div style="margin-top:4px;line-height:1.65;white-space:pre-wrap">${esc(n.concept)}</div></div>`:''}
       ${n.memorize&&n.memorize.length?`<div class="small" style="margin-top:9px"><b class="muted">✦ 외울 내용</b>
@@ -1495,8 +1157,6 @@ async function vNotes(){
       ${n.confuse?`<div class="small" style="margin-top:9px"><b class="muted">⚠ 혼동 포인트</b>
         <div style="margin-top:4px;line-height:1.65;white-space:pre-wrap">${esc(n.confuse)}</div></div>`:''}
       ${n.mnemonic?`<div class="small" style="margin-top:9px"><b class="muted">💡 암기 팁</b> <span class="muted">${esc(n.mnemonic)}</span></div>`:''}
-      ${n.mustMemorize&&n.mustMemorize.length?`<div class="small" style="margin-top:9px;border-left:2px solid var(--ac);padding-left:9px"><b style="color:var(--ac)">🧠 반드시 암기</b>
-        <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.mustMemorize.slice(0,8).map(m=>`<li>${esc(m)}</li>`).join('')}</ul></div>`:''}
       ${n.bullets&&n.bullets.length?`<div class="small" style="margin-top:9px"><b class="muted">📖 개념 정리</b>
         <ul style="margin:5px 0 0;padding-left:18px;line-height:1.6">${n.bullets.slice(0,8).map(b=>`<li>${esc(b)}</li>`).join('')}</ul></div>`:''}
       ${n.terms&&n.terms.length?`<div class="small" style="margin-top:9px"><b class="muted">🔑 관련 용어</b>
@@ -1511,7 +1171,6 @@ async function vNotes(){
         <textarea id="nn${n.no}" style="margin-top:5px" placeholder="이 개념을 내 말로 정리해두세요">${esc(n.note||'')}</textarea>
         <div class="row" style="gap:6px;margin-top:6px">
           <button class="btn sm" onclick="saveNoteText('${n.no}')">저장</button>
-          ${n.quiz&&n.quiz.length?`<button class="btn sm pri" onclick="startNoteQuiz('${n.sec}')">🧪 이 개념 테스트 (${n.quiz.length})</button>`:''}
           ${n.sec?`<a class="btn sm gh" href="#/sec?no=${n.sec}">요약 보기</a>
           <button class="btn sm gh" onclick="go('#/play?mode=sec&no=${n.sec}')">이 개념 문제 풀기</button>`:''}
           <div style="flex:1"></div>
@@ -1540,7 +1199,6 @@ function notesMarkdown(){
     if(n.keyPoints&&n.keyPoints.length)s+='### 핵심 포인트\n'+n.keyPoints.map(k=>'- '+k).join('\n')+'\n\n';
     if(n.confuse)s+='### 혼동 포인트\n'+n.confuse+'\n\n';
     if(n.mnemonic)s+='### 암기 팁\n'+n.mnemonic+'\n\n';
-    if(n.mustMemorize&&n.mustMemorize.length)s+='### 반드시 암기\n'+n.mustMemorize.map(m=>'- '+m).join('\n')+'\n\n';
     if(n.bullets&&n.bullets.length)s+='### 개념 정리\n'+n.bullets.map(b=>'- '+b).join('\n')+'\n\n';
     if(n.terms&&n.terms.length)s+='### 관련 용어\n'+n.terms.map(t=>`- **${t.term}**: ${t.desc}`).join('\n')+'\n\n';
     if(n.wrongs&&n.wrongs.length)s+='### 내가 틀린 문제\n'+n.wrongs.map(w=>`- ${w.qid}: 내 답 ${w.sel?CIRC[w.sel-1]:'모르겠음'} → 정답 ${CIRC[w.answer-1]} ${w.ansText||''}`).join('\n')+'\n\n';
