@@ -146,7 +146,7 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 /* ══════════════════════════════════════════════════════════
    2. 데이터 로딩
    ══════════════════════════════════════════════════════════ */
-const D={index:null,exams:{},summary:null,sec:{},gloss:null,qById:{}};
+const D={index:null,exams:{},summary:null,sec:{},gloss:null,qById:{},newc:null};
 const j=u=>fetch(u).then(r=>{if(!r.ok)throw new Error(u+' → HTTP '+r.status);return r.json()});
 async function boot(){
   try{
@@ -163,6 +163,7 @@ async function boot(){
 }
 // 용어사전은 해당 탭에 들어갈 때만 (초기 로딩 21KB 절약)
 async function needGloss(){ if(!D.gloss) D.gloss=await j('data/glossary.json'); return D.gloss }
+async function needNewc(){ if(!D.newc) D.newc=await j('data/new-concepts.json'); return D.newc }
 function bootFail(e){
   const local=location.protocol==='file:';
   document.getElementById('app').innerHTML=`
@@ -278,11 +279,11 @@ function route(){
   const h=location.hash||'#/home', p=h.split('?')[0].split('/')[1]||'home', a=qs(h);
   document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',
      x.dataset.tab===p||(p==='play'&&x.dataset.tab==='exams')||(p==='sec'&&x.dataset.tab==='summary')
-     ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
+     ||(p==='glossary'&&x.dataset.tab==='summary')||(p==='new'&&x.dataset.tab==='summary')||(p==='gen'&&x.dataset.tab==='analysis')
      ||(p==='drill'&&x.dataset.tab==='notes')));
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
-    analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,settings:vSettings}[p]||vHome)(a);
+    analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -531,6 +532,7 @@ function vSummary(){
   <div class="pill" style="margin-top:12px">
     <button class="${SF.view!=='ai'?'on':''}" onclick="SF.view='pdf';vSummary()">📄 요약집 (PDF)</button>
     <button class="${SF.view==='ai'?'on':''}" onclick="SF.view='ai';vSummary()">✨ AI 요약 (${(S.aiSummary||[]).length})</button>
+    <button onclick="go('#/new')">🆕 신출 개념</button>
   </div>
   ${SF.view==='ai'?aiSummaryView():pdfSummaryView()}`;
 }
@@ -704,6 +706,36 @@ async function vGloss(){
   <div style="height:24px"></div>`;
 }
 function hl(t,kw){t=esc(t);if(!kw)return t;const i=t.toLowerCase().indexOf(kw);return i<0?t:t.slice(0,i)+'<mark>'+t.slice(i,i+kw.length)+'</mark>'+t.slice(i+kw.length)}
+
+/* ══════════════════════════════════════════════════════════
+   9-b. 신출 개념 (기출에는 있으나 요약집 PDF에 없는 내용 정리)
+   ══════════════════════════════════════════════════════════ */
+async function vNew(){
+  if(!D.newc){app().innerHTML='<div class="empty">불러오는 중…</div>';try{await needNewc()}catch(e){app().innerHTML='<div class="empty">신출 개념 데이터를 불러오지 못했습니다.</div>';return}}
+  const d=D.newc, total=d.cats.reduce((a,c)=>a+c.items.length,0);
+  const item=it=>`
+    <div class="card tight">
+      <b style="font-size:14.5px">${esc(it.title)}</b>
+      <div class="small" style="margin-top:5px;line-height:1.65;white-space:pre-wrap">${esc(it.def)}</div>
+      ${it.table?`<div style="overflow-x:auto"><table class="qt" style="margin-top:8px"><tbody>${[it.table.head,...it.table.rows].map((r,ri)=>`<tr>${r.map(c=>`<td${ri===0?' style="font-weight:600;color:var(--tx2)"':''}>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}
+      ${it.svg?`<div style="margin-top:8px;overflow-x:auto">${it.svg}</div>`:''}
+      ${it.code?`<pre class="code" style="margin-top:8px">${esc(it.code)}</pre>`:''}
+      ${it.ex?`<div class="tiny muted" style="margin-top:7px">💡 ${esc(it.ex)}</div>`:''}
+    </div>`;
+  app().innerHTML=`
+  <div class="pill" style="margin-top:12px">
+    <button onclick="go('#/summary')">📄 요약집</button>
+    <button onclick="SF.view='ai';go('#/summary')">✨ AI 요약</button>
+    <button class="on">🆕 신출 개념</button>
+  </div>
+  <h2 class="sec">신출 개념 정리</h2>
+  <div class="card small muted">2024·2025년 기출문제 중 <b>기존 요약집(PDF)에 없던 내용</b>만 골라 간단히 정리했습니다. (${total}개 개념)</div>
+  ${d.cats.map(c=>`
+    <h2 class="sec">${esc(c.cat)}</h2>
+    ${c.desc?`<div class="tiny muted" style="margin:-4px 2px 7px">${esc(c.desc)}</div>`:''}
+    ${c.items.map(item).join('')}`).join('')}
+  <div style="height:24px"></div>`;
+}
 
 /* ══════════════════════════════════════════════════════════
    10. 오답 분석  ★ 3번 영역 ★
