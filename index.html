@@ -728,8 +728,8 @@ async function vNew(){
     <button onclick="SF.view='ai';go('#/summary')">✨ AI 요약</button>
     <button class="on">🆕 신출 개념</button>
   </div>
-  <h2 class="sec">신출 개념 정리</h2>
-  <div class="card small muted">2024·2025년 기출문제 중 <b>기존 요약집(PDF)에 없던 내용</b>만 골라 간단히 정리했습니다. (${total}개 개념)</div>
+  <h2 class="sec">약점·신출 개념 정리</h2>
+  <div class="card small muted"><b>자주 틀리거나 헷갈리는 핵심 개념</b>과 <b>2024·2025년 기출 분석으로 찾은 어려운·새로운 유형</b>을 간단히 모았습니다. (${total}개 항목)</div>
   ${d.cats.map(c=>`
     <h2 class="sec">${esc(c.cat)}</h2>
     ${c.desc?`<div class="tiny muted" style="margin:-4px 2px 7px">${esc(c.desc)}</div>`:''}
