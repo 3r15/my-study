@@ -137,7 +137,7 @@ mark{background:#3c4f2a;color:#e9ffcf;border-radius:3px;padding:0 2px}
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},sumPick:[],aiSummary:[],ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -413,7 +413,9 @@ function drawQ(){
   </div>
   <div class="card">
     <div class="qhd">${subjChip(q.subjectNo)}<span class="qno">${q.no}.</span>
-      <span class="chip">${esc(q.exam)}</span><span class="chip">${esc(q.unit||'')}</span></div>
+      <span class="chip">${esc(q.exam)}</span><span class="chip">${esc(q.unit||'')}</span>
+      <div style="flex:1"></div>
+      <button class="btn sm ${(S.sumPick||[]).includes(q.qid)?'pri':'gh'}" onclick="pickSum('${q.qid}')" title="핵심요약으로 만들 문제 선택">${(S.sumPick||[]).includes(q.qid)?'★ 요약선택':'☆ 요약'}</button></div>
     <div class="stem">${stemHtml(q)}</div>
     ${q.optionsImage?`<img class="qimg" src="img/${esc(q.optionsImage)}" loading="lazy">
        <div class="tiny muted" style="margin-bottom:6px">※ 선택지가 그림/표입니다. 위 이미지를 보고 번호를 고르세요.</div>`:''}
@@ -472,6 +474,14 @@ function skip(){
   S.answers[q.qid]={sel:0,ok:false,t:Date.now(),exam:q.exam,no:q.no,sub:q.subjectNo,unit:q.unit,skip:1};
   save(); P.shown[q.qid]=true; drawQ();
 }
+// 이 문제를 '핵심요약 생성' 대상으로 선택/해제
+function pickSum(qid){
+  S.sumPick=S.sumPick||[];
+  const i=S.sumPick.indexOf(qid);
+  if(i>=0){S.sumPick.splice(i,1);toast('요약 선택을 해제했습니다')}
+  else{S.sumPick.push(qid);toast('핵심요약 목록에 추가했습니다 (요약 페이지에서 생성)')}
+  save(); drawQ();
+}
 function saveMemo(qid){const v=document.getElementById('memo').value.trim();if(v)S.notes[qid]=v;else delete S.notes[qid];save();toast('메모를 저장했습니다')}
 function saveGap(qid){const el=document.getElementById('gap_'+qid);if(!el)return;const v=el.value.trim();if(v)S.gaps[qid]=v;else delete S.gaps[qid];save();toast('저장했습니다 — 학습노트·문제 생성에 반영됩니다')}
 // 최근 '내가 모르는 것' 입력을 프롬프트용 문자열로
@@ -515,14 +525,22 @@ function result(){
 /* ══════════════════════════════════════════════════════════
    9. 핵심요약
    ══════════════════════════════════════════════════════════ */
-let SF={sub:1,q:''};
+let SF={sub:1,q:'',view:'pdf'};
 function vSummary(){
+  app().innerHTML=`
+  <div class="pill" style="margin-top:12px">
+    <button class="${SF.view!=='ai'?'on':''}" onclick="SF.view='pdf';vSummary()">📄 요약집 (PDF)</button>
+    <button class="${SF.view==='ai'?'on':''}" onclick="SF.view='ai';vSummary()">✨ AI 요약 (${(S.aiSummary||[]).length})</button>
+  </div>
+  ${SF.view==='ai'?aiSummaryView():pdfSummaryView()}`;
+}
+function pdfSummaryView(){
   const secs=D.summary.filter(s=>s.subjectNo===SF.sub);
   const kw=SF.q.trim().toLowerCase();
   const hit=kw?secs.filter(s=>(s.title+' '+bodyText(s)).toLowerCase().includes(kw)):secs;
   const units=[];hit.forEach(s=>{if(!units.length||units[units.length-1].u!==s.unit)units.push({u:s.unit,items:[]});units[units.length-1].items.push(s)});
-  app().innerHTML=`
-  <div class="pill" style="margin-top:12px">
+  return `
+  <div class="pill" style="margin-top:8px">
     ${[1,2,3].map(n=>`<button class="${SF.sub===n?'on':''}" onclick="SF.sub=${n};vSummary()">${n}과목</button>`).join('')}
     <button onclick="go('#/glossary')">용어사전 ›</button>
   </div>
@@ -536,6 +554,91 @@ function vSummary(){
       <span class="s">${S.weak[s.no]>=3?`⚠ 취약 ${S.weak[s.no]}점 · `:''}관련 기출 ${(s.qids||[]).length}문항</span></span>
       <span class="muted">›</span></button>`).join('')}`).join('')||'<div class="empty">검색 결과가 없습니다.</div>'}
   <div style="height:24px"></div>`;
+}
+// AI 요약: 기출 풀이 중 선택한 문제로 생성한 핵심요약 (PDF 데이터와 분리)
+function aiSummaryView(){
+  const picks=S.sumPick||[], list=S.aiSummary||[];
+  return `
+  <h2 class="sec">AI로 핵심요약 만들기</h2>
+  <div class="card tight">
+    <div class="small muted" style="margin-bottom:8px">기출을 풀면서 <b>☆ 요약</b> 버튼으로 고른 문제(<b>${picks.length}개</b>)의 내용으로
+    핵심요약을 만듭니다. <b>프롬프트 복사</b> → Claude·ChatGPT → 받은 <b>summary.json 업로드</b>.</div>
+    <div class="grid2">
+      <button class="btn pri" onclick="copySumPrompt()">${picks.length?'프롬프트 복사':'선택된 문제 없음'}</button>
+      <button class="btn" onclick="importAiSummary()">summary.json 업로드</button>
+    </div>
+    ${picks.length?`<button class="btn gh sm" style="width:100%;margin-top:8px" onclick="if(confirm('선택한 문제 목록을 비울까요?')){S.sumPick=[];save();vSummary()}">선택 목록 비우기 (${picks.length})</button>`:''}
+  </div>
+  <div class="row" style="align-items:baseline;margin-top:4px"><h2 class="sec" style="flex:1">생성된 AI 요약 (${list.length})</h2>
+    ${list.length?`<button class="btn gh sm" onclick="if(confirm('생성된 AI 요약을 모두 삭제할까요?')){S.aiSummary=[];save();vSummary()}">전체 삭제</button>`:''}</div>
+  ${list.length?list.map((s,i)=>`
+    <div class="card tight">
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1;min-width:0"><b style="font-size:14.5px">${esc(s.title||'요약')}</b>
+          <div class="tiny muted" style="margin-top:2px">✨ AI 생성${s.subjectNo?` · ${s.subjectNo}과목`:''}${s.unit?` · ${esc(s.unit)}`:''}${s.source&&s.source.length?` · 출처 ${s.source.length}문항`:''}</div></div>
+        <button class="btn sm gh" style="color:var(--no)" onclick="delAiSummary(${i})">삭제</button>
+      </div>
+      ${(s.bullets&&s.bullets.length)?`<ul style="margin:8px 0 0;padding-left:18px;line-height:1.65" class="small">${s.bullets.map(b=>`<li>${esc(b)}</li>`).join('')}</ul>`:''}
+      ${s.source&&s.source.length?`<div class="tiny muted" style="margin-top:8px">${s.source.slice(0,6).map(id=>`<a href="#" onclick="jumpQ('${esc(id)}');return false" style="color:var(--ac);margin-right:8px">${esc(id)}</a>`).join('')}</div>`:''}
+    </div>`).join(''):'<div class="empty">아직 생성된 AI 요약이 없습니다.<br>기출문제를 풀면서 <b>☆ 요약</b>으로 문제를 고른 뒤 위에서 만들어 보세요.</div>'}
+  <div style="height:24px"></div>`;
+}
+function delAiSummary(i){if(!confirm('이 요약을 삭제할까요?'))return;S.aiSummary.splice(i,1);save();vSummary()}
+// 선택한 기출문제 내용을 담아 핵심요약 생성 프롬프트를 만든다
+async function copySumPrompt(){
+  const picks=S.sumPick||[];
+  if(!picks.length){toast('먼저 기출에서 문제를 골라 주세요');return}
+  await Promise.all([...new Set(picks.map(i=>i.slice(0,6)))].map(getExam));
+  const clean=t=>String(t==null?'':t).replace(/\s+/g,' ').trim();
+  const body=picks.map(id=>{
+    const q=D.qById[id]; if(!q)return `- ${id}`;
+    const stem=(q.stem||[]).filter(b=>b.type==='text').map(b=>clean(b.text)).join(' ')||'(지문 생략)';
+    const opts=(q.options||[]).map((o,i)=>`${CIRC[i]}${clean(o.text)}`).join(' ');
+    const rel=(q.refs||[]).slice(0,2).map(n=>secTitle(n)).join(', ');
+    return `- [${id}] ${stem}\n  보기: ${opts}\n  정답: ${CIRC[q.answer-1]}${rel?`\n  관련개념: ${rel}`:''}`;
+  }).join('\n');
+  const p=`너는 정보처리산업기사 필기 핵심요약 정리자다. 아래 기출문제들이 다루는 개념을 시험 대비용 '핵심요약'으로 정리하라.
+
+[기출문제]
+${body}
+
+[요구사항]
+1. 문제들이 다루는 핵심 개념을 주제별로 묶어 요약한다. (문제 자체가 아니라 그 문제가 묻는 '개념'을 정리)
+2. 각 요약 항목의 필드:
+   - title    : 개념/주제 이름
+   - subjectNo: 1~3 과목 번호 (모르면 생략)
+   - unit     : 단원명 (모르면 생략)
+   - bullets  : 시험에 필요한 핵심 내용 배열 (정의·특징·비교·분류 등, 간결하게)
+3. 간결하고 정확하게. 문제 지문을 그대로 베끼지 말 것.
+4. 아래 형식의 JSON 배열만 "summary.json" 파일로 출력한다(설명 문장 없이).
+
+[{"title":"...","subjectNo":3,"unit":"...","bullets":["...","..."]}]`;
+  navigator.clipboard.writeText(p).then(()=>toast('핵심요약 프롬프트를 복사했습니다')).catch(()=>{
+    const t=document.createElement('textarea');t.value=p;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();toast('핵심요약 프롬프트를 복사했습니다')});
+}
+function importAiSummary(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';
+  inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=()=>{
+      let data;try{data=JSON.parse(r.result)}catch(x){alert('JSON 파일을 읽을 수 없습니다: '+x.message);return}
+      const arr=Array.isArray(data)?data:(data&&Array.isArray(data.summary)?data.summary:(data&&Array.isArray(data.items)?data.items:null));
+      if(!arr){alert('요약 JSON 배열을 찾을 수 없습니다');return}
+      const src=(S.sumPick||[]).slice();
+      let n=0;
+      arr.forEach(x=>{
+        if(!x||typeof x!=='object')return;
+        const title=String(x.title||'').trim();
+        const bullets=(Array.isArray(x.bullets)?x.bullets:Array.isArray(x.body)?x.body:[]).map(v=>String(v).trim()).filter(Boolean);
+        if(!title&&!bullets.length)return;
+        S.aiSummary.push({id:'as'+Date.now()+n, title:title||'핵심요약', subjectNo:+x.subjectNo||0, unit:String(x.unit||'').trim(), bullets, source:src, createdAt:Date.now()});
+        n++;
+      });
+      if(!n){alert('불러올 요약이 없습니다');return}
+      save(); toast(`${n}개 AI 요약을 저장했습니다`); SF.view='ai'; vSummary();
+    };
+    r.readAsText(f);
+  };
+  inp.click();
 }
 const bodyText=s=>s.body.map(b=>b.type==='text'?b.text:(b.lines||[]).join(' ')+(b.grid?b.grid.flat().join(' '):'')).join(' ');
 
