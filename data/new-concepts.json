@@ -1,0 +1,69 @@
+{
+  "note": "2024·2025년 기출문제 중 2026 핵심요약집(PDF)에 없던 신출 개념만 간단히 정리한 데이터입니다.",
+  "cats": [
+    {
+      "cat": "① 신기술·컴퓨팅 용어",
+      "desc": "요약집에 없던 최신 IT 용어. 보기에서 정의를 정확히 구분하는 문제가 자주 출제됩니다.",
+      "items": [
+        {"title": "하둡 (Hadoop)", "def": "오픈소스 기반 분산 컴퓨팅 플랫폼. 대용량 데이터를 여러 노드에 분산 저장(HDFS)하고 병렬 처리한다.", "ex": "출처: 2024-2-16"},
+        {"title": "맵리듀스 (MapReduce)", "def": "하둡의 분산 병렬 처리 모델. Map(데이터 분할·가공) → Reduce(집계·요약) 두 단계로 처리한다."},
+        {"title": "타조 (Tajo)", "def": "아파치 하둡 기반의 분산 데이터 웨어하우스 프로젝트. SQL로 대용량 데이터를 질의한다.", "ex": "‘하둡 기반 분산 DW’ = 타조 (2024-2-16)"},
+        {"title": "스쿱 (Sqoop)", "def": "관계형 DB(RDBMS)와 하둡(HDFS) 사이에서 정형 데이터를 이동시키는 도구."},
+        {"title": "PaaS-TA", "def": "국내에서 개발한 개방형 클라우드(PaaS) 플랫폼. (전력망 시스템인 스마트그리드와 혼동 주의)", "ex": "2024-2-08 함정: PaaS-TA를 스마트그리드 설명으로 낸 것이 오답"},
+        {"title": "스마트그리드 (Smart Grid)", "def": "전기의 생산부터 소비까지 전 과정에 ICT를 접목해 에너지 효율을 높이는 지능형 전력망."},
+        {"title": "메시 네트워크 (Mesh Network)", "def": "차세대 이동통신·홈네트워킹·공공안전 등 특수 목적에 쓰이는, 노드끼리 그물망으로 연결되는 네트워크."},
+        {"title": "피코넷 (PICONET)", "def": "블루투스 또는 UWB 기술로 여러 독립 통신장치가 형성하는 소규모 무선 네트워크."},
+        {"title": "SSO (Single Sign-On)", "def": "한 번의 인증으로 여러 시스템의 접근 권한을 함께 얻는 통합 인증 시스템."}
+      ]
+    },
+    {
+      "cat": "② 정보 보안",
+      "desc": "보안 3요소와 대표 공격/기법. 용어 정의 구분이 핵심입니다.",
+      "items": [
+        {"title": "정보 보안 3대 요소 (CIA)", "def": "기밀성·무결성·가용성. (‘휘발성’은 해당 없음 — 2024-1-37)", "table": {"head": ["요소", "의미"], "rows": [["기밀성 Confidentiality", "인가된 사용자만 정보 접근"], ["무결성 Integrity", "인가된 사용자만 정보 수정, 위·변조 방지"], ["가용성 Availability", "인가된 사용자는 언제든 접근 가능"]]}},
+        {"title": "시큐어 코딩 (Secure Coding)", "def": "개발 단계에서 보안 취약점을 사전에 제거하며 코딩하는 기법.", "ex": "관련: SDLC, CLASP, OWASP (보안 개발 지침)"},
+        {"title": "XSS (크로스사이트 스크립팅)", "def": "웹페이지에 악의적인 스크립트를 삽입해 사용자 측에서 실행되게 유도, 정보 유출 등을 일으키는 취약점."},
+        {"title": "SQL 삽입 (SQL Injection)", "def": "입력값에 악의적 SQL 구문을 주입해 데이터베이스를 무단 조회·조작하는 공격."},
+        {"title": "유사 보안 위협 비교", "def": "함께 자주 나오는 위협들.", "table": {"head": ["용어", "특징"], "rows": [["피싱 Phishing", "가짜 사이트·메일로 개인정보 탈취"], ["파밍 Pharming", "DNS 변조로 진짜 주소를 쳐도 가짜 사이트 접속"], ["랜섬웨어 Ransomware", "파일을 암호화한 뒤 금전 요구"]]}}
+      ]
+    },
+    {
+      "cat": "③ 소프트웨어 공학 보강",
+      "desc": "요약집에 없던 설계·아키텍처 개념.",
+      "items": [
+        {"title": "SOA (서비스 지향 아키텍처)", "def": "정보 시스템을 공유·재사용 가능한 서비스 단위(컴포넌트) 중심으로 구축하는 아키텍처."},
+        {"title": "HIPO", "def": "시스템 분석·설계를 도표로 문서화하는 기법. 3가지 패키지로 구성. (순서도 Flowchart는 해당 없음 — 2024-2-19)", "table": {"head": ["패키지", "역할"], "rows": [["도식 목차 (Visual TOC)", "전체 구성을 트리로 표현"], ["총괄 도표 (Overview)", "입력-처리-출력 개요"], ["상세 도표 (Detail)", "세부 기능 상세"]]}},
+        {"title": "추적성 (Traceability)", "def": "요구사항 명세의 원칙 중 하나. 요구사항의 출처·관련 시스템 등 관계를 추적할 수 있게 작성.", "ex": "다른 명세 원칙: 명확성·완전성·일관성·검증 가능성"},
+        {"title": "Fan-in / Fan-out", "def": "모듈 구조 지표. Fan-in = 자신을 호출하는 상위 모듈 수, Fan-out = 자신이 호출하는 하위 모듈 수. 좋은 설계는 Fan-in 높고 Fan-out 낮게.", "svg": "<svg viewBox='0 0 260 120' width='240' style='max-width:100%'><g fill='none' stroke='#7bb0ff' stroke-width='1.5'><line x1='40' y1='20' x2='120' y2='60'/><line x1='40' y1='60' x2='120' y2='60'/><line x1='40' y1='100' x2='120' y2='60'/><line x1='140' y1='60' x2='220' y2='40'/><line x1='140' y1='60' x2='220' y2='80'/></g><g fill='#1d2b48' stroke='#7bb0ff'><circle cx='30' cy='20' r='11'/><circle cx='30' cy='60' r='11'/><circle cx='30' cy='100' r='11'/><circle cx='130' cy='60' r='14'/><circle cx='230' cy='40' r='11'/><circle cx='230' cy='80' r='11'/></g><g fill='#cfe0ff' font-size='11' text-anchor='middle' font-family='sans-serif'><text x='30' y='24'>A</text><text x='30' y='64'>B</text><text x='30' y='104'>C</text><text x='130' y='64' font-weight='bold'>F</text><text x='230' y='44'>G</text><text x='230' y='84'>H</text></g><g fill='#8aa0c0' font-size='10' text-anchor='middle' font-family='sans-serif'><text x='55' y='115'>Fan-in 3</text><text x='195' y='115'>Fan-out 2</text></g></svg>"},
+        {"title": "스크립트 언어 특성", "def": "인터프리터 방식 언어의 특징: 개발 시간 짧고 코딩 쉬움, 런타임 오류가 많음, 실행 속도는 컴파일 언어보다 느림. (‘실행 속도가 빠르다’는 틀림 — 2024-2-35)"}
+      ]
+    },
+    {
+      "cat": "④ 디자인 패턴 보강 (구조 패턴)",
+      "desc": "요약집은 생성 패턴 위주 → 구조 패턴이 새로 출제됩니다.",
+      "items": [
+        {"title": "어댑터 (Adapter)", "def": "호환되지 않는 기존 클래스를 재사용할 수 있도록 중간에서 인터페이스를 맞춰 주는 구조 패턴.", "ex": "‘기존 클래스 재사용 위해 맞춰줌’ = 어댑터 (2024-2-17)"},
+        {"title": "브리지 (Bridge)", "def": "추상(기능)과 구현을 분리해 서로 독립적으로 확장할 수 있게 하는 구조 패턴."},
+        {"title": "데코레이터 (Decorator)", "def": "객체에 책임(기능)을 동적으로 덧붙여 기능을 확장하는 구조 패턴."},
+        {"title": "퍼사드 (Facade)", "def": "복잡한 서브시스템에 대해 단순한 통합 창구(인터페이스)를 제공하는 구조 패턴."}
+      ]
+    },
+    {
+      "cat": "⑤ 자료구조 보강",
+      "desc": "요약집(스택·큐)에 없던 연결 리스트.",
+      "items": [
+        {"title": "연결 리스트 (Linked List)", "def": "노드(데이터 + 다음 노드를 가리키는 포인터)로 연결한 자료구조. 삽입·삭제가 쉬움, 포인터용 추가 공간 필요, 검색은 순차 접근이라 느림, 중간 연결이 끊기면 이후 노드 접근이 어려움. (‘검색이 빠르다’는 틀림 — 2024-2-53)", "svg": "<svg viewBox='0 0 300 46' width='280' style='max-width:100%'><g font-family='sans-serif' font-size='12'><g fill='#1d2b48' stroke='#7bb0ff'><rect x='6' y='10' width='60' height='26' rx='4'/><rect x='120' y='10' width='60' height='26' rx='4'/><rect x='234' y='10' width='60' height='26' rx='4'/></g><g fill='#cfe0ff' text-anchor='middle'><text x='36' y='27'>A ·↦</text><text x='150' y='27'>B ·↦</text><text x='264' y='27'>C ·⏚</text></g><g stroke='#7bb0ff' fill='#7bb0ff'><line x1='66' y1='23' x2='118' y2='23' stroke-width='1.5'/><polygon points='118,23 111,19 111,27'/><line x1='180' y1='23' x2='232' y2='23' stroke-width='1.5'/><polygon points='232,23 225,19 225,27'/></g></g></svg>"}
+      ]
+    },
+    {
+      "cat": "⑥ HTML5 · CSS3",
+      "desc": "웹 관련 세부 태그·속성 문제가 새로 자주 나옵니다.",
+      "items": [
+        {"title": "HTML5 시맨틱 태그", "def": "구조를 의미로 표현하는 태그. <nav>(탐색 링크·메뉴·목차·인덱스), <header>, <footer>, <section>, <article>, <aside>. (2025-3-39: 탐색 링크 = <nav>)"},
+        {"title": "목록 태그", "def": "<ul>(순서 없는 목록), <ol>(순서 있는 목록), <li>(항목), <dl>/<dt>/<dd>(정의 목록). <el> 은 존재하지 않는 태그. (2025-3-25)"},
+        {"title": "<input> 주요 속성", "def": "required(반드시 입력해야 하는 필수 필드), type(email·number·date·password 등), placeholder(안내 문구). (2025-1-34: 필수 입력 = required)", "code": "<input type=\"email\" required placeholder=\"이메일 입력\">"},
+        {"title": "CSS3 주요 속성", "def": "padding(안쪽 여백), border-style(테두리 종류: solid·dotted·dashed), border-radius(모서리 둥글게), color(글자색). (2025-3-38, 2025-1-36)", "code": "p {\n  padding: 50px;\n  border-style: dotted;   /* 점선 */\n  border-color: red;\n  border-radius: 8px;      /* 둥근 모서리 */\n}"}
+      ]
+    }
+  ]
+}
