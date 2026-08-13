@@ -1240,7 +1240,7 @@ function importDrill(){
 }
 function clearDrill(){if(!(S.drillBank||[]).length){toast('삭제할 세트가 없습니다');return}if(!confirm('저장된 암기 테스트를 모두 지울까요?'))return;S.drillBank=[];save();vDrill()}
 let DB={subj:0,scope:'all',sel:{}};   // subj:프롬프트 과목 / scope:풀 범위 / sel:선택된 세트
-let DR={items:null,i:0,res:{}};       // 플레이어 상태
+let DR={items:null,i:0,res:{},hint:{},order:{},draft:{}};   // 플레이어 상태 (hint:힌트표시 / order:섞인 정답 / draft:입력보존)
 const drillId=x=>x.type+'|'+(x.title||'');
 // 현재 범위(전체/미암기/선택)에 해당하는 세트 목록
 function drillPool(){
@@ -1306,7 +1306,18 @@ function startDrill(){
     if(it.type==='group')it._order=shuffle(it.pairs.map((_,i)=>i));   // 개념군 표시 순서 섞기
     return it;
   }));
-  DR.i=0; DR.res={}; drawDrill();
+  DR.i=0; DR.res={}; DR.hint={}; DR.order={}; DR.draft={}; drawDrill();
+}
+// 힌트: 정답들을 '정답이 아닌 순서'로 섞어 보여준다 (입력값은 보존)
+function showDrillHint(){
+  const it=DR.items[DR.i];
+  const answers=it.type==='seq'?it.items.slice():it.pairs.map(p=>p.c);
+  // 현재 입력값 보존
+  DR.draft[DR.i]=answers.map((_,j)=>{const el=document.getElementById('dr_'+j);return el?el.value:''});
+  // 원래 순서와 최대한 다르게 섞기 (짧으면 그냥 셔플)
+  let sh=shuffle(answers.slice());
+  if(answers.length>1){let tries=0;while(sh.some((v,i)=>v===answers[i])&&tries<8){sh=shuffle(answers.slice());tries++}}
+  DR.order[DR.i]=sh; DR.hint[DR.i]=true; drawDrill();
 }
 function drawDrill(){
   const it=DR.items[DR.i], r=DR.res[DR.i];
@@ -1317,7 +1328,7 @@ function drawDrill(){
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start">
       ${it.items.map((ans,j)=>`${j?'<span style="color:var(--tx3);align-self:center">→</span>':''}
         <span style="display:inline-flex;flex-direction:column;gap:2px">
-          <input id="dr_${j}" ${r?'disabled':''} value="${r?esc(r.answers[j]||''):''}" placeholder="${j+1}번" style="width:118px;padding:7px 8px;${r?(r.oks[j]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
+          <input id="dr_${j}" ${r?'disabled':''} value="${r?esc(r.answers[j]||''):esc((DR.draft[DR.i]||[])[j]||'')}" placeholder="${j+1}번" style="width:118px;padding:7px 8px;${r?(r.oks[j]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
           ${r?`<span class="tiny" style="color:${r.oks[j]?'var(--ok)':'var(--no)'};max-width:118px">${r.oks[j]?'✔':'✘ '+esc(ans)}</span>`:''}
         </span>`).join('')}
       </div>`;
@@ -1325,7 +1336,7 @@ function drawDrill(){
     bodyHtml=`<div class="tiny muted" style="margin:2px 0 8px">각 설명에 해당하는 개념 이름을 채우세요.</div>
       ${it._order.map((pi,row)=>{const pr=it.pairs[pi];return `<div class="card tight" style="margin:6px 0">
         <div class="small">${esc(pr.d)}</div>
-        <input id="dr_${row}" ${r?'disabled':''} value="${r?esc(r.answers[row]||''):''}" placeholder="개념 이름" style="margin-top:6px;${r?(r.oks[row]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
+        <input id="dr_${row}" ${r?'disabled':''} value="${r?esc(r.answers[row]||''):esc((DR.draft[DR.i]||[])[row]||'')}" placeholder="개념 이름" style="margin-top:6px;${r?(r.oks[row]?'border-color:var(--ok)':'border-color:var(--no)'):''}">
         ${r?`<div class="tiny" style="margin-top:4px;color:${r.oks[row]?'var(--ok)':'var(--no)'}">${r.oks[row]?'✔ 정답':'✘ 정답: '+esc(pr.c)}</div>`:''}
       </div>`}).join('')}`;
   }
@@ -1342,8 +1353,13 @@ function drawDrill(){
     <div style="margin-top:10px">${bodyHtml}</div>
     ${r?`<div class="fb ${nOk===nBlank?'ok':'no'}" style="margin-top:10px"><b>${nOk} / ${nBlank} 정답</b></div>
       <button class="btn pri" style="width:100%;margin-top:10px" onclick="drillMv(1)">${DR.i===DR.items.length-1?'끝내기 ✓':'다음 →'}</button>`
-     :`<div class="row" style="gap:8px;margin-top:12px">
+     :`${DR.hint[DR.i]?`<div class="small" style="margin-top:10px;border-left:2px solid var(--ac);padding-left:9px">
+        <b style="color:var(--ac)">🔀 힌트 · 정답 (순서 섞음)</b>
+        <div style="margin-top:4px;line-height:1.7">${(DR.order[DR.i]||[]).map(a=>`<span style="display:inline-block;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:2px 9px;margin:2px 4px 2px 0">${esc(a)}</span>`).join('')}</div>
+        <div class="tiny muted" style="margin-top:4px">아래 순서·설명에 맞게 위 정답들을 배치해 보세요 (표시 순서는 정답 순서가 아닙니다)</div></div>`:''}
+      <div class="row" style="gap:8px;margin-top:12px">
         <button class="btn pri" style="flex:2" onclick="checkDrill()">확인</button>
+        <button class="btn" style="flex:1" ${DR.hint[DR.i]?'disabled':''} onclick="showDrillHint()">🔀 힌트</button>
         <button class="btn gh" style="flex:1" onclick="drillMv(1)">건너뛰기 →</button>
       </div>`}
   </div>
