@@ -327,7 +327,7 @@ function route(){
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
     analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings,
     phome:vPHome,pexam:vPExam,ptype:vPType,pplay:vPPlay,
-    pwrong:vPWrong,pnote:vPNote,pnv:vPNv}[p]||vHome)(a);
+    pwrong:vPWrong,pnote:vPNote,pnv:vPNv,pai:vPAI,paiplay:vPAIPlay}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1736,6 +1736,10 @@ function pGrade(q,user){
 
 /* ── 기록 ──────────────────────────────────────────────── */
 function pRec(q,g,val){
+  if(q.ai){   // AI 유사문제는 기출 통계를 흐리지 않도록 따로 기록한다
+    PA().aiAns[q.id]={ok:!!g.ok,v:String(val==null?'':val).slice(0,300),t:Date.now(),pat:g.pat||''};
+    save(); return;
+  }
   const P=PS(), tags=(q.tags&&q.tags.length)?q.tags:[TLABEL[q.type]];
   P.ans[q.id]={ok:!!g.ok,v:String(val==null?'':val).slice(0,300),t:Date.now(),
                type:q.type,exam:q.exam,pat:g.pat||'',part:g.part||null,tags:tags};
@@ -1779,7 +1783,8 @@ function hl(src){
   return s;
 }
 const nl2br=t=>esc(t).replace(/\n/g,'<br>');
-const examTitle=id=>{const e=(PD.idx.exams||[]).filter(x=>x.id===id)[0]; return e?e.title:id};
+const examTitle=id=>{ if(id==='ai')return 'AI 유사문제';
+  const e=(PD.idx.exams||[]).filter(x=>x.id===id)[0]; return e?e.title:id };
 
 /* ══ 진도 유틸 ═════════════════════════════════════════ */
 function pDone(list){ const A=PS().ans; return list.filter(q=>A[q.id]).length }
@@ -1842,7 +1847,11 @@ async function vPHome(){
   '<h2 class="sec">학습노트</h2>'+
   '<div class="card tight"><div class="lrow" onclick="go(\'#/pnote\')" style="cursor:pointer">'+
     '<div class="g"><b>기출 분석 학습노트 '+PD.note.length+'개</b>'+
-    '<span class="s">12회차 기출에서 반복되는 개념만 정리 · '+rdn+'개 완료</span></div><span class="chip">→</span></div></div>'+
+    '<span class="s">12회차 기출에서 반복되는 개념만 정리 · '+rdn+'개 완료</span></div><span class="chip">→</span></div>'+
+    '<div class="lrow" onclick="go(\'#/pai\')" style="cursor:pointer">'+
+    '<div class="g"><b>취약점 분석 · AI 학습</b>'+
+    '<span class="s">내 오답으로 취약 개념을 진단하고, AI로 개념 요약·유사문제를 만듭니다</span></div>'+
+    '<span class="chip" style="color:var(--pu);border-color:#463a7a">AI</span></div></div>'+
 
   '<div class="card tight" style="margin-top:14px"><div class="row" style="flex-wrap:wrap;gap:7px">'+
     '<button class="btn sm gh" onclick="pReset(\'all\')">실기 기록 초기화</button>'+
@@ -1914,7 +1923,7 @@ async function vPPlay(a){
 function pShuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
 function pDraw(){
-  const q=PP.list[PP.i], rec=PS().ans[q.id], shown=!!PP.shown[q.id];
+  const q=PP.list[PP.i], rec=pRecOf(q), shown=!!PP.shown[q.id];
   document.getElementById('hTitle').textContent=PP.title;
   app().innerHTML=
   '<div class="row small" style="margin:10px 0 6px">'+
@@ -1939,7 +1948,7 @@ function pQCard(q,rec,shown){
   const multi=(q.type==='code'&&q.a.indexOf('\n')>=0)||q.a.length>28;
   return '<div class="card">'+
   '<div class="qhd">'+
-    '<span class="chip">'+esc(examTitle(q.exam))+' '+q.no+'번</span>'+
+    '<span class="chip">'+esc(examTitle(q.exam))+(q.ai?'':' '+q.no+'번')+'</span>'+
     '<span class="chip" style="color:'+TCOLOR[q.type]+'">'+TLABEL[q.type]+'</span>'+
     (q.lang?'<span class="chip">'+esc(q.lang)+'</span>':'')+
     '<div style="flex:1"></div>'+
@@ -1994,8 +2003,9 @@ function pMv(d){
   PP.i=n; window.scrollTo(0,0); pDraw();
 }
 function pRetry(id){
-  const q=PD.byId[id]; if(!q)return;
-  const P=PS(); delete P.ans[id]; save();
+  const q=pQOf(id); if(!q)return;
+  if(q.ai) delete PA().aiAns[id]; else delete PS().ans[id];
+  save();
   if(PP&&PP.list.some(x=>x.id===id)){ delete PP.shown[id]; PP.i=PP.list.findIndex(x=>x.id===id); pDraw(); }
   else { PP={list:[q],i:0,title:'다시 풀기',shown:{},from:location.hash}; pDraw() }
 }
@@ -2102,7 +2112,8 @@ async function vPWrong(){
   const A=PS().ans;
   const wrong=PD.exam.filter(q=>A[q.id]&&!A[q.id].ok);
   if(!wrong.length){
-    app().innerHTML='<div class="empty">아직 틀린 문제가 없습니다.<br><span class="tiny">문제를 풀면 여기에 모입니다.</span></div>';
+    app().innerHTML='<div class="empty">아직 틀린 문제가 없습니다.<br><span class="tiny">문제를 풀면 여기에 모입니다.</span></div>'+
+      '<div class="row" style="justify-content:center"><button class="btn sm gh" onclick="go(\'#/pai\')">취약점 분석 · AI 학습</button></div>';
     return;
   }
   const groups={};
@@ -2116,8 +2127,9 @@ async function vPWrong(){
   const tabs=[['tag','개념별'],['exam','회차별'],['pat','실수 유형별']];
   app().innerHTML=
   '<h2 class="sec">오답노트 <span class="tiny muted">'+wrong.length+'문항</span></h2>'+
-  '<div class="row" style="gap:7px;margin-bottom:8px">'+
+  '<div class="row" style="gap:7px;margin-bottom:8px;flex-wrap:wrap">'+
     '<button class="btn sm" onclick="go(\'#/pplay?mode=wrong\')">전부 다시 풀기</button>'+
+    '<button class="btn sm" onclick="go(\'#/pai\')">취약점 분석 · AI 학습</button>'+
     '<button class="btn sm gh" onclick="pCopyWrong()">마크다운 복사</button>'+
   '</div>'+
   '<div class="frow">'+tabs.map(t=>'<button class="fchip'+(WF.by===t[0]?' on':'')+'" onclick="WF.by=\''+t[0]+'\';vPWrong()">'+t[1]+'</button>').join('')+'</div>'+
@@ -2166,8 +2178,350 @@ function pResetRead(){
   P.read={}; save(); toast('학습 표시를 지웠습니다'); vPHome();
 }
 
+/* ══════════════════════════════════════════════════════════
+   실기 AI 학습 — 취약점 분석 · 개념 요약 · 유사문제 생성
+   정적 사이트라 API 키를 넣을 수 없어, 필기 쪽과 같은 복사–붙여넣기
+   왕복으로 처리한다: 프롬프트 복사 → AI가 .json 파일 생성 → 업로드.
+     · pAiDiag()        내 오답에서 뽑은 취약점 진단 (태그·유형·실수 패턴)
+     · pCopyNotePrompt()  개념 요약 프롬프트 → prac-notes.json
+     · pCopyGenPrompt()   유사문제 프롬프트  → prac-drill.json
+     · pImport(kind)    AI가 만든 JSON 파일을 읽어 저장
+   S.prac.aiNote[tag] = {tag,title,concept,memorize[],compare[],myMistake,drill[],...}
+   S.prac.aiQ         = [{id:'ai…',ai:1,type,lang,q,code,a,alt[],why,tags[]}]
+   S.prac.aiAns[id]   = {ok,v,t,pat}
+   ══════════════════════════════════════════════════════════ */
+function PA(){ const P=PS(); P.aiNote=P.aiNote||{}; P.aiQ=P.aiQ||[]; P.aiAns=P.aiAns||{}; return P }
+const pRecOf=q=>q&&q.ai?PA().aiAns[q.id]:PS().ans[q.id];
+const pQOf=id=>PD.byId[id]||PA().aiQ.filter(x=>x.id===id)[0];
+
+/* ── 취약점 진단 ──────────────────────────────────────── */
+function pAiDiag(){
+  const A=PS().ans, ids=Object.keys(A);
+  const wrong=ids.filter(id=>!A[id].ok);
+  const by=(keyOf)=>{
+    const m={};
+    ids.forEach(id=>{ const q=PD.byId[id]; if(!q)return;
+      [].concat(keyOf(q)||[]).forEach(k=>{ if(!k)return;
+        m[k]=m[k]||{k:k,n:0,ok:0}; m[k].n++; if(A[id].ok)m[k].ok++; }); });
+    return Object.values(m).map(x=>(x.rate=Math.round(x.ok/x.n*100),x))
+                 .sort((a,b)=>a.rate-b.rate||b.n-a.n);
+  };
+  return {
+    n:ids.length, wrong:wrong.length,
+    rate:ids.length?Math.round((ids.length-wrong.length)/ids.length*100):0,
+    tags:by(q=>q.tags), types:by(q=>TLABEL[q.type]), langs:by(q=>q.lang),
+    exams:by(q=>examTitle(q.exam)), pats:pPatStats()
+  };
+}
+
+/* ── 프롬프트 재료 ────────────────────────────────────── */
+function pWrongDigest(limit){
+  const A=PS().ans;
+  const L=PD.exam.filter(q=>A[q.id]&&!A[q.id].ok).slice(-(limit||25));
+  if(!L.length) return '- (없음)';
+  return L.map(q=>{
+    const a=A[q.id];
+    return '- ['+q.id+'] '+examTitle(q.exam)+' '+q.no+'번 · '+TLABEL[q.type]+(q.lang?'('+q.lang+')':'')+
+      '\n  개념: '+((q.tags||[]).join(', ')||'-')+
+      '\n  문제: '+String(q.q||'').replace(/\s+/g,' ').slice(0,180)+
+      (q.code?'\n  코드:\n'+String(q.code).split('\n').slice(0,26).map(x=>'    '+x).join('\n'):'')+
+      '\n  내 답: '+(a.v||'(빈칸)')+'  → 정답: '+String(q.a).replace(/\n/g,' / ')+
+      (a.pat?'\n  채점기가 본 원인: '+a.pat:'');
+  }).join('\n');
+}
+function pWeakDigest(){
+  const d=pAiDiag();
+  const line=(x)=>'- '+x.k+' : '+x.n+'문항 중 '+x.ok+'개 정답 ('+x.rate+'%)';
+  return {
+    tags:d.tags.filter(x=>x.n>=2&&x.rate<80).slice(0,12).map(line).join('\n')||'- (기록 없음)',
+    types:d.types.map(line).join('\n')||'- (기록 없음)',
+    pats:d.pats.slice(0,6).map(p=>'- '+p.k+' : '+p.v+'회').join('\n')||'- (없음)',
+    d:d
+  };
+}
+function pCopy(text,msg){
+  const done=()=>toast(msg);
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(done).catch(()=>pCopyFallback(text,done));
+  else pCopyFallback(text,done);
+}
+function pCopyFallback(text,done){
+  const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);
+  t.select();try{document.execCommand('copy')}catch(e){}t.remove();done();
+}
+
+/* ── 1) 개념 요약 프롬프트 ────────────────────────────── */
+function pCopyNotePrompt(){
+  const w=pWeakDigest();
+  if(!w.d.n){toast('먼저 문제를 풀어 오답 기록을 만들어 주세요');return}
+  const notes=PD.note.map(n=>'- '+n.title+' ('+n.cat+', 태그: '+(n.tags||[]).join('/')+')').join('\n');
+  const p=`너는 정보처리산업기사 **실기** 학습 코치다. 실기는 4지선다가 아니라 답을 직접 쓰는 주관식 필답형이다.
+아래는 한 학습자가 기출 231문항(2022년 1회~2025년 3회)을 풀면서 남긴 실제 오답 기록이다.
+이 사람이 "무엇을 몰라서" 틀렸는지 진단하고, 그 개념만 콕 집어 정리한 학습노트를 만들어라.
+
+[개념별 정답률 — 낮을수록 취약]
+${w.tags}
+
+[유형별 정답률]
+${w.types}
+
+[채점기가 분류한 실수 패턴]
+${w.pats}
+
+[내가 틀린 문제 (실제 기출 · 내가 쓴 답 포함)]
+${pWrongDigest(25)}
+
+[이미 사이트에 있는 학습노트 — 여기서 다루지 않는 각도로 써야 의미가 있다]
+${notes}
+
+[요구사항]
+1. 취약 개념마다 노트 1개. 위 오답 기록에 근거가 없는 내용은 지어내지 말 것.
+2. 이 사람이 틀린 "구체적인 이유"를 짚어라. 개념을 몰랐는지, 알면서 계산에서 어긋났는지,
+   출력 서식을 놓쳤는지는 완전히 다른 처방이 필요하다. 내가 쓴 답과 정답의 차이를 근거로 판단하라.
+3. 실기는 답을 직접 써야 하므로 "고르면 알아보는" 수준이 아니라 "빈 종이에 쓸 수 있는" 수준까지 정리할 것.
+4. 각 노트의 필드:
+   - tag        : 위 [개념별 정답률]에 나온 개념명을 그대로 하나 (없으면 새 이름)
+   - title      : 노트 제목 (짧게)
+   - concept    : 핵심 개념 1~3문장 (필수)
+   - memorize   : 시험장에서 그대로 꺼내 써야 할 것 — 정의·공식·순서·포트번호 등 배열 (필수)
+   - compare    : 헷갈리는 짝 비교 "A vs B: 차이" 배열 (없으면 [])
+   - myMistake  : 이 사람이 실제로 틀린 지점과 그 원인. 위 오답을 인용해 구체적으로. (필수)
+   - drill      : 이 개념을 손으로 확인할 수 있는 자문자답 배열 예) "for(i=0;i<=n;i++)는 몇 번 도는가? → n+1번"
+   - qids       : 근거로 삼은 위 오답의 [id] 배열 예) ["23-3-09","25-2-10"]
+5. 결과를 아래 형식의 JSON 배열로 만들고 **prac-notes.json 이라는 내려받을 수 있는 파일**로 출력하라.
+   (설명 문장 없이 JSON 배열만)
+
+[{"tag":"포인터","title":"포인터가 가리키는 대상이 바뀔 때","concept":"...","memorize":["..."],"compare":["A vs B: ..."],"myMistake":"...","drill":["... → ..."],"qids":["25-2-10"]}]`;
+  pCopy(p,'개념 요약 프롬프트를 복사했습니다');
+}
+
+/* ── 2) 유사문제 생성 프롬프트 ────────────────────────── */
+function pCopyGenPrompt(){
+  const w=pWeakDigest();
+  if(!w.d.n){toast('먼저 문제를 풀어 오답 기록을 만들어 주세요');return}
+  const p=`너는 정보처리산업기사 **실기** 출제위원이다. 실기는 4지선다가 아니라 답을 직접 쓰는 주관식 필답형이다.
+아래 학습자의 오답을 겨냥해, 같은 개념을 다른 각도로 묻는 **유사문제 15개**를 만들어라.
+
+[개념별 정답률 — 낮을수록 취약]
+${w.tags}
+
+[채점기가 분류한 실수 패턴]
+${w.pats}
+
+[내가 틀린 문제 (이 문제들과 같은 개념·같은 난이도로 출제할 것)]
+${pWrongDigest(20)}
+
+[요구사항]
+1. 실제 기출과 같은 난이도·문체. 산업기사 수준을 넘지 말 것.
+2. 위 취약 개념을 우선 겨냥하되, **원문 그대로 베끼지 말고** 숫자·변수명·조건을 바꾼 유사문제로 만든다.
+3. 유형(type)은 아래 중 하나:
+   - code  : 코드를 주고 실행 결과를 묻는다. lang 은 C / Java / Python 중 하나. code 필드 필수.
+   - sql   : SQL문을 쓰게 하거나 빈칸을 채우게 한다.
+   - short : 설명을 주고 용어를 쓰게 한다.
+   - fill  : 괄호 여러 개를 채우게 한다. 정답은 "① 값  ② 값" 형식.
+   - order : 순서를 나열하게 한다. 정답은 쉼표로 구분.
+4. **코드 문제는 반드시 직접 실행 결과를 계산해 검증하라.** 정답이 틀린 문제는 학습을 망친다.
+   반복 횟수, 정수 나눗셈, 출력 서식(%.2f 등), 반복 종료 후 변수값을 특히 주의할 것.
+5. 답은 키보드로 칠 수 있는 문자만 쓴다. 화살표(→)나 동그라미 기호(㉠, ⓐ)를 답에 넣지 말 것.
+   보기가 필요하면 choices 배열에 "ㄱ. 내용" 형식으로 넣고 답은 "ㄱ, ㄴ" 처럼 쓴다.
+6. alt 에는 같은 뜻으로 인정할 다른 표기를 넣는다 (영문 약어·풀네임·띄어쓰기 차이 등).
+7. why 에는 정답이 나오는 과정을 단계별로 적는다. 코드 문제는 변수값 변화를 따라가며 설명할 것.
+8. 결과를 아래 형식의 JSON 배열로 만들고 **prac-drill.json 이라는 내려받을 수 있는 파일**로 출력하라.
+   (설명 문장 없이 JSON 배열만)
+
+[{"type":"code","lang":"C","q":"다음 C 코드의 실행 결과를 쓰시오.","code":"int main() {\\n    ...\\n}","a":"42","alt":[],"why":"i는 …","tags":["반복문-for"]},
+ {"type":"short","q":"다음 설명에 해당하는 프로토콜을 영문 약어로 쓰시오. …","a":"ARP","alt":["Address Resolution Protocol"],"why":"…","tags":["네트워크"]}]`;
+  pCopy(p,'유사문제 프롬프트를 복사했습니다');
+}
+
+/* ── 3) JSON 파일 불러오기 ────────────────────────────── */
+function pImport(kind){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f)return;
+    const r=new FileReader();
+    r.onload=()=>{
+      let data; try{ data=JSON.parse(r.result) }
+      catch(x){ alert('JSON 파일을 읽을 수 없습니다: '+x.message); return }
+      const pick=(...keys)=>{
+        if(Array.isArray(data))return data;
+        for(const k of keys) if(data&&Array.isArray(data[k]))return data[k];
+        return null;
+      };
+      const arr=kind==='note'?pick('notes','prac-notes','studyNotes'):pick('questions','items','prac-drill','drill');
+      if(!arr){ alert('JSON 배열을 찾을 수 없습니다. [{...}] 형식의 .json 파일인지 확인하세요'); return }
+      const n=kind==='note'?pApplyNotes(arr):pApplyQs(arr);
+      if(!n){ alert('불러올 항목이 없습니다'); return }
+      save(); toast(n+'개를 저장했습니다'); vPAI({tab:kind==='note'?'note':'gen'});
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+const pArr=v=>Array.isArray(v)?v.map(x=>String(x)).filter(x=>x.trim()):(v?[String(v)]:[]);
+
+function pApplyNotes(arr){
+  const P=PA(); let n=0;
+  arr.forEach(x=>{
+    if(!x||typeof x!=='object')return;
+    const concept=String(x.concept||x.summary||'').trim();
+    if(!concept)return;
+    const tag=String(x.tag||x.title||'').trim()||('ai'+Date.now());
+    const prev=P.aiNote[tag]||null;
+    P.aiNote[tag]={
+      tag:tag, title:String(x.title||tag).trim(), concept:concept,
+      memorize:pArr(x.memorize).length?pArr(x.memorize):(prev?prev.memorize:[]),
+      compare:pArr(x.compare), myMistake:String(x.myMistake||x.myConfusion||'').trim(),
+      drill:pArr(x.drill),
+      qids:pArr(x.qids).filter(id=>PD.byId[id]),
+      createdAt:prev?prev.createdAt:Date.now(), updatedAt:Date.now()
+    };
+    n++;
+  });
+  return n;
+}
+function pApplyQs(arr){
+  const P=PA(); let n=0;
+  const seen=new Set(P.aiQ.map(q=>pnK(q.q)+'|'+pnK(q.a)));
+  arr.forEach((x,i)=>{
+    if(!x||typeof x!=='object')return;
+    const q=String(x.q||'').trim(), a=String(x.a==null?'':x.a).trim();
+    if(!q||!a)return;
+    const key=pnK(q)+'|'+pnK(a);
+    if(seen.has(key))return;
+    seen.add(key);
+    const type=['code','sql','short','fill','order'].indexOf(x.type)>=0?x.type:(x.code?'code':'short');
+    P.aiQ.push({
+      id:'ai'+Date.now().toString(36)+i, ai:1, exam:'ai', no:P.aiQ.length+1,
+      type:type, lang:x.lang||(type==='sql'?'SQL':null),
+      q:q, code:x.code?String(x.code):null,
+      choices:Array.isArray(x.choices)&&x.choices.length?x.choices.map(String):null,
+      a:a, alt:pArr(x.alt), why:String(x.why||'').trim(),
+      tags:pArr(x.tags), unit:'', partial:false, createdAt:Date.now()
+    });
+    n++;
+  });
+  return n;
+}
+function pDelNote(tag){
+  if(!confirm('이 AI 요약을 삭제할까요?'))return;
+  delete PA().aiNote[tag]; save(); vPAI({tab:'note'});
+}
+function pClearQs(){
+  const P=PA();
+  if(!P.aiQ.length){toast('저장된 유사문제가 없습니다');return}
+  if(!confirm('생성된 유사문제 '+P.aiQ.length+'개를 모두 지울까요?'))return;
+  P.aiQ=[]; P.aiAns={}; save(); toast('삭제했습니다'); vPAI({tab:'gen'});
+}
+
+/* ── AI 학습 화면 ─────────────────────────────────────── */
+let AIF={tab:'diag'};
+async function vPAI(a){
+  if(!await pLoad())return;
+  if(a&&a.tab)AIF.tab=a.tab;
+  document.getElementById('hTitle').textContent='취약점 분석 · AI 학습';
+  const P=PA(), d=pAiDiag();
+  const tabs=[['diag','취약점 분석'],['note','개념 요약 ('+Object.keys(P.aiNote).length+')'],['gen','유사문제 ('+P.aiQ.length+')']];
+  app().innerHTML=
+    '<div class="frow">'+tabs.map(t=>'<button class="fchip'+(AIF.tab===t[0]?' on':'')+'" onclick="vPAI({tab:\''+t[0]+'\'})">'+t[1]+'</button>').join('')+'</div>'+
+    (AIF.tab==='diag'?pDiagView(d):AIF.tab==='note'?pNoteAiView():pGenView())+
+    '<div style="height:24px"></div>';
+}
+
+function pBars(title,rows,empty){
+  if(!rows.length) return '<h2 class="sec">'+title+'</h2><div class="card tight small muted">'+empty+'</div>';
+  return '<h2 class="sec">'+title+'</h2><div class="card tight">'+rows.map(x=>
+    '<div class="lrow"><div class="g"><b>'+esc(x.k)+'</b>'+
+      '<span class="s">'+x.n+'문항 중 '+x.ok+'개 정답</span>'+
+      '<div class="mini" style="margin-top:5px"><i style="width:'+x.rate+'%;background:'+
+        (x.rate>=70?'var(--ok)':x.rate>=40?'var(--wn)':'var(--no)')+'"></i></div></div>'+
+    '<span class="chip" style="color:'+(x.rate>=70?'var(--ok)':x.rate>=40?'var(--wn)':'var(--no)')+
+      ';border-color:var(--line)">'+x.rate+'%</span></div>').join('')+'</div>';
+}
+function pDiagView(d){
+  if(!d.n) return '<div class="empty">아직 푼 문제가 없습니다.<br><span class="tiny">기출을 풀면 여기에서 취약점을 분석합니다.</span></div>';
+  const weak=d.tags.filter(x=>x.n>=2&&x.rate<80).slice(0,10);
+  return '<div class="grid3">'+
+    '<div class="kpi"><div class="v">'+d.n+'</div><div class="k">푼 문제</div></div>'+
+    '<div class="kpi"><div class="v" style="color:'+(d.rate>=60?'var(--ok)':'var(--wn)')+'">'+d.rate+'%</div><div class="k">정답률</div></div>'+
+    '<div class="kpi"><div class="v" style="color:var(--no)">'+d.wrong+'</div><div class="k">틀린 문제</div></div>'+
+  '</div>'+
+  pBars('개념별 정답률',weak,'2문항 이상 푼 개념 중 약한 것이 없습니다.')+
+  pBars('유형별 정답률',d.types,'기록이 없습니다.')+
+  (d.langs.length?pBars('언어별 정답률',d.langs,''):'')+
+  (d.pats.length?'<h2 class="sec">자주 나온 실수</h2><div class="card tight">'+
+    d.pats.slice(0,8).map(p=>'<div class="lrow"><div class="g"><b>'+esc(p.k)+'</b></div>'+
+      '<span class="chip">'+p.v+'회</span></div>').join('')+'</div>':'')+
+  '<div class="card tight" style="margin-top:14px"><div class="small">'+
+    '이 분석을 그대로 담아 <b>AI 프롬프트</b>를 만들 수 있습니다. 개념 요약과 유사문제 탭에서 복사하세요.</div></div>';
+}
+
+function pNoteAiView(){
+  const P=PA(), list=Object.values(P.aiNote).sort((a,b)=>b.updatedAt-a.updatedAt);
+  return '<div class="card tight"><div class="small">내 오답과 취약 개념을 정리한 프롬프트를 복사해 Claude·ChatGPT에 붙여넣으면 '+
+    '<b>내가 왜 틀렸는지</b>까지 짚은 개념 요약을 <code class="ic">prac-notes.json</code> 파일로 만들어 줍니다. 그 파일을 여기에 올리세요.</div>'+
+    '<div class="grid2" style="margin-top:10px">'+
+      '<button class="btn sm" onclick="pCopyNotePrompt()">프롬프트 복사</button>'+
+      '<button class="btn sm gh" onclick="pImport(\'note\')">prac-notes.json 올리기</button>'+
+    '</div></div>'+
+  (!list.length?'<div class="empty">아직 불러온 AI 개념 요약이 없습니다.</div>'
+   :list.map(n=>'<div class="card">'+
+      '<div class="qhd"><span class="chip" style="color:var(--pu);border-color:#463a7a">'+esc(n.tag)+'</span>'+
+        '<div style="flex:1"></div><button class="btn sm gh" onclick="pDelNote(\''+n.tag.replace(/'/g,"\\'")+'\')">삭제</button></div>'+
+      '<h3 style="margin:9px 0 6px;font-size:16.5px">'+esc(n.title)+'</h3>'+
+      '<div class="small" style="line-height:1.75">'+nl2br(n.concept)+'</div>'+
+      (n.memorize.length?'<div class="tiny muted" style="margin:11px 0 3px">외울 것</div>'+
+        n.memorize.map((m,k)=>'<div class="nrule"><div class="nn">'+(k+1)+'</div><div>'+pMd(m)+'</div></div>').join(''):'')+
+      (n.compare.length?'<div class="tiny muted" style="margin:11px 0 3px">헷갈리는 짝</div>'+
+        n.compare.map(c=>'<div class="nrule"><div class="nn">vs</div><div>'+pMd(c)+'</div></div>').join(''):'')+
+      (n.myMistake?'<div class="ntrap" style="margin-top:11px"><b>내가 틀린 지점</b>'+
+        '<div style="margin-top:4px;font-size:14px;line-height:1.72">'+pMd(n.myMistake)+'</div></div>':'')+
+      (n.drill.length?'<div class="tiny muted" style="margin:11px 0 3px">스스로 확인</div>'+
+        '<div class="outbox" style="font-family:inherit;white-space:pre-wrap">'+n.drill.map(esc).join('\n')+'</div>':'')+
+      (n.qids.length?'<div class="tiny muted" style="margin:10px 0 3px">근거가 된 내 오답</div>'+
+        n.qids.map(id=>{const q=PD.byId[id];return '<div class="lrow" onclick="go(\'#/pplay?id='+id+'\')" style="cursor:pointer">'+
+          '<div class="g"><b>'+esc(examTitle(q.exam))+' '+q.no+'번</b><span class="s">'+
+          esc(String(q.q).replace(/\n/g,' ').slice(0,50))+'</span></div><span class="chip">→</span></div>'}).join(''):'')+
+    '</div>').join(''));
+}
+
+function pGenView(){
+  const P=PA(), A=P.aiAns;
+  const done=P.aiQ.filter(q=>A[q.id]).length, ok=P.aiQ.filter(q=>A[q.id]&&A[q.id].ok).length;
+  return '<div class="card tight"><div class="small">같은 프롬프트 방식으로 <b>내 오답과 같은 개념의 유사문제</b>를 만들 수 있습니다. '+
+    'AI가 <code class="ic">prac-drill.json</code> 파일을 만들어 주면 여기에 올려 기출과 똑같은 방식으로 풀 수 있습니다.</div>'+
+    '<div class="grid2" style="margin-top:10px">'+
+      '<button class="btn sm" onclick="pCopyGenPrompt()">프롬프트 복사</button>'+
+      '<button class="btn sm gh" onclick="pImport(\'gen\')">prac-drill.json 올리기</button>'+
+    '</div></div>'+
+  (!P.aiQ.length?'<div class="empty">아직 불러온 유사문제가 없습니다.</div>'
+   :'<div class="card tight"><div class="row small"><div style="flex:1"><b>유사문제 '+P.aiQ.length+'개</b>'+
+      pBar(done,ok,P.aiQ.length)+'</div>'+
+      '<button class="btn sm" style="margin-left:10px" onclick="go(\'#/paiplay\')">'+(done?'이어풀기':'풀기')+'</button></div></div>'+
+    '<div class="card tight">'+P.aiQ.map((q,i)=>{
+      const rec=A[q.id];
+      return '<div class="lrow" onclick="go(\'#/paiplay?i='+i+'\')" style="cursor:pointer">'+
+        '<div class="g"><b>'+(i+1)+'. '+TLABEL[q.type]+(q.lang?' · '+esc(q.lang):'')+'</b>'+
+        '<span class="s">'+esc(String(q.q).replace(/\n/g,' ').slice(0,52))+'</span></div>'+
+        (rec?'<span class="chip '+(rec.ok?'ok2':'')+'" style="'+(rec.ok?'':'color:var(--no);border-color:#5c2b2b')+'">'+(rec.ok?'○':'✘')+'</span>'
+            :'<span class="chip">→</span>')+'</div>';
+    }).join('')+'</div>'+
+    '<div class="row" style="margin-top:12px"><button class="btn sm gh" onclick="pClearQs()">유사문제 전체 삭제</button></div>');
+}
+
+/* ── 유사문제 풀이 (기출과 같은 카드·채점을 그대로 씀) ── */
+async function vPAIPlay(a){
+  if(!await pLoad())return;
+  const P=PA();
+  if(!P.aiQ.length){ go('#/pai?tab=gen'); return }
+  const A=P.aiAns, first=P.aiQ.findIndex(q=>!A[q.id]);
+  PP={list:P.aiQ,i:a&&a.i!=null?+a.i:(first<0?0:first),title:'AI 유사문제',shown:{},from:'#/pai?tab=gen'};
+  P.aiQ.forEach(q=>{ if(A[q.id])PP.shown[q.id]=1 });
+  pDraw();
+}
+
 /* ── 모드 전환 · 내비게이션 ───────────────────────────── */
-const PRAC_ROUTES=['phome','pexam','ptype','pplay','pnote','pnv','pwrong'];
+const PRAC_ROUTES=['phome','pexam','ptype','pplay','pnote','pnv','pwrong','pai','paiplay'];
 function isPrac(p){ return PRAC_ROUTES.indexOf(p)>=0 }
 function setMode(m){
   try{localStorage.setItem('jbsg_mode',m)}catch(e){}
@@ -2185,7 +2539,7 @@ function drawNav(p){
   const m=curMode();
   document.getElementById('navIn').innerHTML=NAV[m].map(x=>
     '<a href="#/'+x[0]+'" data-tab="'+x[0]+'"><i>'+x[1]+'</i>'+x[2]+'</a>').join('');
-  const alias={pplay:'pexam',pnv:'pnote'};
+  const alias={pplay:'pexam',pnv:'pnote',pai:'pwrong',paiplay:'pwrong'};
   const t=alias[p]||p;
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',
     a.dataset.tab===t||(m==='written'&&((p==='play'&&a.dataset.tab==='exams')
