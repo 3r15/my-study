@@ -2,6 +2,9 @@
 
 PDF → JSON 변환 파이프라인. 문제은행을 다시 만들거나 회차를 추가할 때 씁니다.
 
+- `parse_exam.py` · `parse_summary.py` · `build_data.py` — **필기** (기출 PDF + 핵심요약집 PDF)
+- `build_prac.py` + `raw/` — **실기** (기사퍼스트 가답안 게시글에서 판독한 회차별 원본)
+
 ## 필요 패키지
 ```bash
 pip install pdfplumber --break-system-packages
@@ -32,3 +35,41 @@ files = [f for f in files if re.search(r'(2022|2023|2024|2025)년', os.path.base
 - **정답 파싱** — 마지막 "정답" 페이지에서 `1.② 2.④ …` 추출
 
 검증: 12회차 × 60문항 = 720, 정답 720/720, 보기 4개 미달 0건.
+
+---
+
+## 실기 데이터 (`build_prac.py`)
+
+```bash
+python build_prac.py ../data      # build/raw/*.json → data/prac-exam.json + prac-index.json
+```
+
+`raw/<회차>.json` 12개가 원본입니다. 각 파일은 한 회차(20문항)를 담습니다.
+
+```json
+{ "exam":"22-1", "title":"2022년 1회", "date":"2022-05-07", "pass":"합격률 44%",
+  "note":"(회차 전체에 붙는 안내. 예: 복원되지 않은 번호 범위)",
+  "questions":[ { "no":1, "type":"order", "tags":[…], "unit":"…",
+                  "q":"…", "code":"…", "choices":[…],
+                  "a":"정답", "alt":[…], "why":"해설", "partial":false } ] }
+```
+
+`id`(`22-1-06` 형식)와 `exam`은 빌드 때 자동으로 붙으므로 원본에 적지 않습니다.
+스크립트는 `data/prac-note.json`의 `qids`가 실제 문항을 가리키는지도 함께 검사해,
+학습노트에서 끊어진 링크가 생기지 않게 합니다.
+
+### 원본 판독에 대해
+
+가답안 게시글 PDF는 **문제 지문과 정답이 벡터 도형으로 렌더링**되어 있어
+`pdfplumber`/`pypdfium2`의 텍스트 추출로는 상당 부분이 빠집니다
+(특히 붉은 글씨의 정답은 12개 파일 중 3개에서만 추출됨).
+그래서 페이지를 이미지로 렌더링해 직접 판독한 결과가 `raw/`입니다.
+
+```python
+import pypdfium2 as pdfium
+d = pdfium.PdfDocument(path)
+d[i].render(scale=2.4).to_pil().save(...)   # 본문 영역만 크롭해서 확인
+```
+
+원 게시글에 지문이 실리지 않고 가답안만 있는 문항은 `"partial": true`로 표시했고,
+앱에서 "복원 미완 — 참고용"으로 안내하며 랜덤·안 푼 문제 출제에서 제외합니다.

@@ -1,0 +1,115 @@
+{
+"exam": "23-3", "title": "2023년 3회", "date": "2023-10-07", "pass": "합격률 16.3%",
+"questions": [
+{"no":1,"type":"fill","tags":["네트워크","IPv6"],"unit":"응용 SW 기초 기술 활용 - 2.네트워크 기초 활용",
+ "q":"IPv6에 대한 설명이다. 괄호에 알맞은 말을 쓰시오.\nIPv6의 주소 길이는 ( ① ) 비트이며, 실시간 트래픽을 위한 ( ② ) 기능을 지원한다.",
+ "a":"① 128  ② QoS","alt":["128, Quality of Service"],
+ "why":"IPv4는 32비트, IPv6는 128비트다. IPv6는 헤더를 단순화하고 QoS(서비스 품질), 보안(IPSec 기본 탑재), 자동 주소 설정을 표준으로 제공한다."},
+
+{"no":2,"type":"code","lang":"C","tags":["재귀","함수"],"unit":"프로그래밍 언어 활용 - 1.C언어",
+ "q":"다음 C 코드의 실행 결과를 쓰시오.",
+ "code":"#include <stdio.h>\n#define MAX 4\nint prin(int a);\nint main() {\n    prin(MAX);\n}\nint prin(int a) {\n    if(a > 1) prin(a-1);\n    printf(\"%d\", a);\n}",
+ "a":"1234",
+ "why":"재귀 호출이 printf보다 먼저 나오므로 4→3→2→1까지 내려간 뒤 돌아오면서 출력한다. 그래서 1,2,3,4 순으로 찍힌다. 호출 순서와 출력 순서가 반대가 되는 전형적인 문제다."},
+
+{"no":3,"type":"sql","lang":"SQL","tags":["SQL","DISTINCT"],"unit":"SQL 활용 - 2.기본 SQL 작성",
+ "q":"customer 테이블에서 grade 속성을 중복 없이 검색하는 SQL문을 작성하시오.",
+ "a":"select distinct grade from customer",
+ "why":"DISTINCT는 SELECT 절 바로 뒤에 붙어 결과의 중복 행을 제거한다. 여러 컬럼을 함께 적으면 그 조합이 같은 행만 하나로 합쳐진다."},
+
+{"no":4,"type":"short","tags":["네트워크","프로토콜"],"unit":"응용 SW 기초 기술 활용 - 2.네트워크 기초 활용",
+ "q":"IP 주소를 MAC 주소로 변환하는 프로토콜을 영문 약어로 쓰시오.",
+ "a":"ARP","alt":["Address Resolution Protocol"],
+ "why":"ARP는 통신할 상대의 IP는 알지만 MAC을 모를 때 브로드캐스트로 물어보는 프로토콜이다. 반대로 MAC에서 IP를 알아내는 것은 RARP다."},
+
+{"no":5,"type":"code","lang":"C","tags":["배열","나머지연산"],"unit":"프로그래밍 언어 활용 - 1.C언어",
+ "q":"달팽이 배열을 만드는 C 코드의 일부이다. 괄호 ①에 들어갈 값을 쓰시오.\nc = (c+i) % ( ① )",
+ "a":"4",
+ "why":"달팽이(나선) 배열은 오른쪽·아래·왼쪽·위 네 방향을 순환한다. 방향 인덱스를 4로 나눈 나머지로 관리하면 3 다음이 0으로 돌아가 순환이 이어진다."},
+
+{"no":6,"type":"short","tags":["네트워크","프로토콜"],"unit":"응용 SW 기초 기술 활용 - 2.네트워크 기초 활용",
+ "q":"오류 전송 및 ping 명령에 사용되는 프로토콜을 영문 약어로 쓰시오.",
+ "a":"ICMP","alt":["Internet Control Message Protocol"],
+ "why":"ICMP는 IP 패킷 전달 중 생긴 오류나 상태 정보를 알리는 네트워크 계층 프로토콜이다. ping(도달 확인)과 traceroute(경로 추적)가 ICMP를 사용한다."},
+
+{"no":7,"type":"code","lang":"C","tags":["버블정렬","배열","반복문-for"],"unit":"프로그래밍 언어 활용 - 1.C언어",
+ "q":"다음 C 코드의 실행 결과를 쓰시오. (버블 정렬)",
+ "code":"#include <stdio.h>\nint main() {\n    int data[] = {15, 12, 26, 23, 31, 36};\n    int temp = 0;\n    int cnt = sizeof(data)/sizeof(int);\n    for(int i=0; i<cnt; i++) {\n        for(int j=i; j<5-i; j++) {\n            if(data[j] > data[j+1]) {\n                temp = data[j];\n                data[j] = data[j+1];\n                data[j+1] = temp;\n            }\n        }\n    }\n    for(int i=1; i<cnt-1; i++) {\n        printf(\"%d \", data[i]);\n    }\n}",
+ "a":"15 23 26 31",
+ "why":"정렬 후 배열은 12, 15, 23, 26, 31, 36이 된다. 출력 반복이 i=1부터 cnt-2까지라 양 끝의 12와 36은 빠지고 가운데 네 값만 찍힌다. 출력 구간을 확인하는 것이 핵심이다."},
+
+{"no":8,"type":"order","tags":["네트워크","TCP"],"unit":"응용 SW 기초 기술 활용 - 2.네트워크 기초 활용",
+ "q":"TCP 연결 해제(4-way handshake) 과정을 <보기>에서 골라 순서대로 나열하시오.",
+ "choices":["㉠ 수신자가 송신자에게 ACK 세그먼트를 전송한다.","㉡ 수신자가 송신자에게 FIN 세그먼트를 전송한다.","㉢ 송신자가 수신자에게 ACK 세그먼트를 전송한다.","㉣ 송신자가 수신자에게 FIN 세그먼트를 전송한다."],
+ "a":"㉣, ㉠, ㉡, ㉢",
+ "why":"4-way handshake는 FIN(송신자) → ACK(수신자) → FIN(수신자) → ACK(송신자) 순이다. 양쪽이 각각 종료를 알리고 확인해야 하므로 연결 설정(3-way)보다 한 단계 더 필요하다."},
+
+{"no":9,"type":"code","lang":"C","tags":["포인터","배열","함수"],"unit":"프로그래밍 언어 활용 - 1.C언어",
+ "q":"다음 C 코드의 실행 결과를 쓰시오.",
+ "code":"#include <stdio.h>\nint sub(int* a) {\n    printf(\"%d\", *a);\n    printf(\"%d\", a[2]);\n}\nint main() {\n    int a[10] = {1,2,3,4,5,6};\n    sub(a);\n    sub(a+2);\n}",
+ "a":"1335",
+ "why":"sub(a)에서 *a는 a[0]=1, a[2]=3이라 13이 찍힌다. sub(a+2)는 시작 주소가 a[2]로 밀려 *a는 3, a[2]는 원래 a[4]=5라 35가 된다. 포인터에 정수를 더하면 원소 단위로 이동한다."},
+
+{"no":10,"type":"code","lang":"Java","tags":["상속","오버라이딩","super"],"unit":"프로그래밍 언어 활용 - 2.JAVA언어",
+ "q":"다음 Java 코드의 실행 결과를 쓰시오.",
+ "code":"class Berry {\n    String Str;\n    void meth() {\n        func();\n    }\n    void func() {\n        System.out.println(Str);\n    }\n}\nclass Apple extends Berry {\n    String Str;\n    void func() {\n        Str = \"Apple\";\n        super.Str = \"Berry\";\n        super.func();\n        System.out.println(Str);\n    }\n}\npublic class Gisafirst {\n    public static void main(String[] args) {\n        Berry A = new Apple();\n        A.meth();\n    }\n}",
+ "a":"Berry\nApple",
+ "why":"메서드는 오버라이딩되어 실제 객체(Apple)의 func()가 호출되지만, 필드는 오버라이딩되지 않고 가려지기만 한다. super.func()는 부모의 Str(\"Berry\")를, 이어지는 출력은 자식의 Str(\"Apple\")을 찍는다."},
+
+{"no":11,"type":"fill","tags":["애플리케이션 테스트"],"unit":"애플리케이션 테스트 수행 - 1.애플리케이션 테스트",
+ "q":"다음 설명에 해당하는 것을 <보기>에서 고르시오.\n① 개발 단계의 산출물이 그 단계의 초기에 설정된 조건을 만족하는지 여부를 평가하는 프로세스\n② 사용자의 관점에서 요구사항을 만족하는지를 평가하는 프로세스",
+ "choices":["㉠ Vertical","㉡ Vulnerability","㉢ Validation","㉣ Vector","㉤ Verification","㉥ Version"],
+ "a":"① Verification  ② Validation",
+ "why":"검증(Verification)은 '제품을 올바르게 만들고 있는가'를, 확인(Validation)은 '올바른 제품을 만들고 있는가'를 본다. 산출물 기준이면 Verification, 사용자 요구 기준이면 Validation이다."},
+
+{"no":12,"type":"fill","tags":["데이터베이스","스키마"],"unit":"응용 SW 기초 기술 활용 - 3.데이터베이스 기초 활용",
+ "q":"다음 설명에 해당하는 용어를 <보기>에서 고르시오.\n① 데이터베이스의 구조와 제약 조건에 관한 전반적인 명세\n② 개체가 가지고 있는 특성",
+ "choices":["㉠ 튜플","㉡ 속성","㉢ 도메인","㉣ 스키마"],
+ "a":"① 스키마  ② 속성",
+ "why":"스키마는 데이터베이스의 구조·제약 조건 명세이고, 속성(애트리뷰트)은 개체의 특성으로 테이블의 열에 해당한다. 도메인은 속성이 가질 수 있는 값의 집합이다."},
+
+{"no":13,"type":"code","lang":"C","tags":["포인터","함수","주소전달"],"unit":"프로그래밍 언어 활용 - 1.C언어",
+ "q":"두 수 중 큰 수와 작은 수를 구하는 C 코드이다. 괄호에 들어갈 인자를 쓰시오.",
+ "code":"#include <stdio.h>\nint compare(int i, int j, int *ma, int *in) {\n    if(i>j) {\n        *ma = i;\n        *in = j;\n    }\n    else {\n        *ma = i;\n        *in = j;\n    }\n}\nint main() {\n    int max = 0;\n    int min = 0;\n    compare(3, 7, ( ① ), ( ② ));\n    printf(\"작은수:%d 큰수:%d\", max, min);\n}",
+ "a":"① &max  ② &min",
+ "why":"함수 안에서 호출자의 변수를 바꾸려면 주소를 넘겨 포인터로 받아야 한다(call by reference). &는 변수의 주소를 얻는 연산자이고, 함수 안의 *ma는 그 주소가 가리키는 값을 뜻한다."},
+
+{"no":14,"type":"fill","tags":["네트워크","포트"],"unit":"응용 SW 기초 기술 활용 - 2.네트워크 기초 활용",
+ "q":"다음 프로토콜의 포트 번호를 쓰시오.\n① HTTPS  ② SSH  ③ IMAP",
+ "a":"① HTTPS : 443  ② SSH : 22  ③ IMAP : 143",
+ "why":"자주 나오는 포트는 FTP 20·21, SSH 22, TELNET 23, SMTP 25, DNS 53, HTTP 80, POP3 110, IMAP 143, HTTPS 443이다. 메일 수신 계열(POP3 110, IMAP 143)을 묶어 외우면 좋다."},
+
+{"no":15,"type":"code","lang":"Java","tags":["정적변수","함수","반복문-for"],"unit":"프로그래밍 언어 활용 - 2.JAVA언어",
+ "q":"다음 Java 코드의 실행 결과를 쓰시오.",
+ "code":"public class Gisafirst {\n    static int a = 0;\n    static int func(int t) {\n        a = a+t;\n        return a;\n    }\n    public static void main(String[] args) {\n        for(int i=0; i<5; i++) {\n            func(i);\n        }\n        System.out.print(a);\n    }\n}",
+ "a":"10",
+ "why":"static 변수 a는 호출이 끝나도 값이 유지되고 클래스 전체가 하나만 공유한다. 0+1+2+3+4가 누적되어 10이 남는다. 지역 변수였다면 매번 초기화되어 4가 됐을 것이다."},
+
+{"no":16,"type":"fill","tags":["애플리케이션 테스트","블랙박스"],"unit":"애플리케이션 테스트 수행 - 1.애플리케이션 테스트",
+ "q":"다음 <보기>에서 블랙박스 테스트에 해당하는 것을 모두 고르시오.",
+ "choices":["㉠ 동치 분할","㉡ 경계값 분석","㉢ 구문 커버리지","㉣ 조건 커버리지"],
+ "a":"㉠ 동치 분할, ㉡ 경계값 분석","alt":["동치분할, 경계값 분석"],
+ "why":"블랙박스 기법은 동치 분할, 경계값 분석, 원인-결과 그래프, 오류 예측, 비교 검사다. 커버리지 계열(구문·조건·결정·다중조건)은 소스 코드를 봐야 하므로 화이트박스다."},
+
+{"no":17,"type":"code","lang":"Java","tags":["클래스/객체","메서드"],"unit":"프로그래밍 언어 활용 - 2.JAVA언어",
+ "q":"다음 Java 코드의 실행 결과를 쓰시오.",
+ "code":"class A {\n    int f(int a, int b) {\n        return a+b;\n    }\n}\npublic class Gisafirst {\n    public static void main(String[] args) {\n        A a = new A();\n        System.out.print(a.f(25, 25));\n    }\n}",
+ "a":"50",
+ "why":"new로 객체를 만든 뒤 참조 변수로 메서드를 호출하는 기본 형태다. f(25,25)는 두 값을 더해 50을 반환한다."},
+
+{"no":18,"type":"fill","tags":["무결성","데이터베이스"],"unit":"응용 SW 기초 기술 활용 - 3.데이터베이스 기초 활용",
+ "q":"무결성 제약 조건과 관련 개념을 <보기>에서 골라 연결하시오.\n① Unique Integrity  ② Domain Integrity  ③ Referential Integrity  ④ Entity Integrity",
+ "choices":["㉠ 도메인","㉡ 특정 속성 값","㉢ 기본키, null","㉣ 외래키, 참조"],
+ "a":"① 특정 속성 값  ② 도메인  ③ 외래키(참조)  ④ 기본키(null 불가)",
+ "why":"고유 무결성은 특정 속성 값이 중복되지 않아야 하고, 도메인 무결성은 값이 정의된 도메인에 속해야 하며, 참조 무결성은 외래키 규칙, 개체 무결성은 기본키에 NULL·중복 금지를 뜻한다."},
+
+{"no":19,"type":"fill","tags":["데이터베이스","릴레이션"],"unit":"응용 SW 기초 기술 활용 - 3.데이터베이스 기초 활용",
+ "q":"다음 릴레이션의 ① 차수와 ② 카디널리티를 쓰시오.\n\n학번 | 이름 | 학과 | 학점 | 도시\n0001 | 김길현 | 전기 | 3.5 | 대구\n0002 | 이상인 | 컴퓨터 | 4.1 | 서울\n0003 | 남기욱 | 전자 | 2.7 | 부산",
+ "a":"① 차수 : 5  ② 카디널리티 : 3",
+ "why":"차수(Degree)는 속성(열)의 개수로 학번·이름·학과·학점·도시 5개, 카디널리티(Cardinality)는 튜플(행)의 개수로 3이다. 차수는 스키마가 바뀌지 않는 한 고정이고 카디널리티는 데이터에 따라 변한다."},
+
+{"no":20,"type":"short","tags":["정규화","데이터베이스"],"unit":"SQL 활용 - 1.데이터베이스 기초",
+ "q":"다치 종속(다중값 종속)을 제거하는 정규형은 무엇인가?",
+ "a":"제4정규형","alt":["4NF","제4정규화"],
+ "why":"제4정규형은 BCNF를 만족하면서 다치 종속이 없는 상태다. 정규화 순서는 원자값(1NF) → 부분 종속 제거(2NF) → 이행 종속 제거(3NF) → 결정자(BCNF) → 다치 종속(4NF) → 조인 종속(5NF)이다."}
+]}

@@ -323,8 +323,8 @@ function route(){
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
     analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings,
-    phome:vPHome,pcode:vPCode,pplay:vPPlay,pterm:vPTerm,
-    pana:vPWrong,pwrong:vPWrong,pnote:vPNote,pnv:vPNv}[p]||vHome)(a);
+    phome:vPHome,pexam:vPExam,ptype:vPType,pplay:vPPlay,
+    pwrong:vPWrong,pnote:vPNote,pnv:vPNv}[p]||vHome)(a);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1624,28 +1624,45 @@ function impData(){
 }
 
 /* ══════════════════════════════════════════════════════════
-   실기 (Practical) 모듈 — 코드 출력 맞히기 · 단답형 · 오답분석
+   실기 (Practical) 모듈 — 기출 231문항 (2022-1 ~ 2025-3)
+   데이터: data/prac-exam.json · prac-index.json · prac-note.json
    ══════════════════════════════════════════════════════════ */
-const PD={idx:null,code:null,term:null,note:null,byId:{}};
+const PD={idx:null,exam:null,note:null,byId:{},byExam:{},noteOf:{}};
 let PP=null;                              // 현재 풀이 세션
 
 function PS(){ if(!S.prac)S.prac={ans:{},notes:{},tag:{},read:{},mode:'input'}; return S.prac }
+function PSr(){ const P=PS(); if(!P.read)P.read={}; return P.read }
+function pReadTog(id,ev){ if(ev)ev.stopPropagation(); const R=PSr(); if(R[id])delete R[id]; else R[id]=1; save(); }
 
 async function pLoad(){
-  if(PD.code) return true;
+  if(PD.exam) return true;
   try{
-    const r=await Promise.all([j('data/prac-index.json'),j('data/prac-code.json'),
-                               j('data/prac-term.json'),j('data/prac-note.json')]);
-    PD.idx=r[0]; PD.code=r[1]; PD.term=r[2]; PD.note=r[3];
-    PD.code.forEach(q=>PD.byId[q.id]=q); PD.term.forEach(q=>PD.byId[q.id]=q);
+    const r=await Promise.all([j('data/prac-index.json'),j('data/prac-exam.json'),j('data/prac-note.json')]);
+    PD.idx=r[0]; PD.exam=r[1].questions; PD.note=r[2];
+    PD.exam.forEach(q=>{
+      PD.byId[q.id]=q;
+      (PD.byExam[q.exam]=PD.byExam[q.exam]||[]).push(q);
+    });
+    PD.note.forEach(n=>(n.qids||[]).forEach(id=>(PD.noteOf[id]=PD.noteOf[id]||[]).push(n)));
     return true;
   }catch(e){ app().innerHTML='<div class="empty">실기 데이터를 불러오지 못했습니다.<br><span class="tiny">'+esc(e.message)+'</span></div>'; return false }
 }
 
-/* ── 채점 유틸 ─────────────────────────────────────────── */
+const TLABEL={code:'코드 출력',sql:'SQL 작성',short:'단답형',fill:'괄호 채우기',order:'순서 나열'};
+const TCOLOR={code:'var(--ac)',sql:'var(--pu)',short:'var(--ok)',fill:'var(--wn)',order:'var(--tx2)'};
+
+/* ── 답 정규화 · 채점 ──────────────────────────────────── */
 const pn =s=>String(s==null?'':s).replace(/\r/g,'').split('\n').map(x=>x.replace(/\s+$/,'')).join('\n').replace(/\n+$/,'').replace(/^\n+/,'');
 const pnL=s=>pn(s).replace(/\s/g,'');
-const pnK=s=>pn(s).replace(/\s/g,'').replace(/[·ㆍ\-–—_()]/g,'').toLowerCase();
+const pnK=s=>pn(s).replace(/\s/g,'').replace(/[·ㆍ\-–—_()[\]{}'"`,.:;]/g,'').toLowerCase();
+
+// "① 외부 ② 개념 ③ 내부" → ["외부","개념","내부"]
+function pParts(a){
+  const s=String(a==null?'':a);
+  if(!/[①②③④⑤⑥⑦⑧⑨]/.test(s)) return [];
+  return s.split(/[①②③④⑤⑥⑦⑧⑨]/).map(x=>x.replace(/^[\s:.]*/,'').trim())
+          .filter(x=>pnK(x).length>0);
+}
 
 function pDiag(user,ans){
   const u=pn(user), a=pn(ans);
@@ -1654,43 +1671,49 @@ function pDiag(user,ans){
   if(pnL(u)===pnL(a)) return {k:'공백·개행만 다름',d:'값 자체는 맞았습니다. 실기는 출력 서식까지 채점되므로 printf/println의 공백·개행 위치를 확인하세요.'};
   const un=Number(u), an=Number(a);
   if(u.indexOf('\n')<0&&a.indexOf('\n')<0&&isFinite(un)&&isFinite(an)&&u!==''){
-    if(Math.abs(un-an)===1) return {k:'1 차이 (off-by-one)',d:'반복 횟수·배열 인덱스 경계를 한 칸 더 세었거나 덜 세었습니다. < 와 <=, i++ 의 위치, 0부터 시작 여부를 확인하세요.'};
+    if(Math.abs(un-an)===1) return {k:'1 차이 (off-by-one)',d:'반복 횟수·배열 인덱스 경계를 한 칸 더 세었거나 덜 세었습니다. < 와 <=, 반복이 끝난 뒤 남는 i값을 확인하세요.'};
     if(un===-an&&an!==0)   return {k:'부호 반대',d:'뺄셈 순서 또는 음수 처리 부분을 확인하세요.'};
     if(un===an*10||un*10===an) return {k:'자릿수 밀림',d:'누적 위치나 자릿수 계산(/ 10, % 10)을 확인하세요.'};
-    if(an===Math.trunc(an)&&un!==Math.trunc(un)&&Math.trunc(un)===an)
-      return {k:'정수 나눗셈 오해',d:'C·Java에서 int / int 는 소수점을 버립니다. 실수 결과를 얻으려면 한쪽을 실수로 형변환해야 합니다.'};
-    if(Math.abs(un-an)<=3) return {k:'근접 오답',d:'반복 조건이나 초기값이 한두 단계 어긋났습니다. 아래 추적표에서 첫 회차 값부터 대조해 보세요.'};
+    if(Math.abs(un-an)<=3) return {k:'근접 오답',d:'반복 조건이나 초기값이 한두 단계 어긋났습니다. 첫 회차 값부터 손으로 따라가 보세요.'};
     return {k:'값이 다름',d:'연산 순서나 누적 변수의 초기값을 확인하세요.'};
   }
   const ul=u.split('\n'), al=a.split('\n');
   if(ul.length!==al.length) return {k:'출력 줄 수 다름 ('+ul.length+' vs '+al.length+')',d:'반복 횟수 또는 개행 위치를 잘못 판단했습니다.'};
   if(ul.slice().sort().join('|')===al.slice().sort().join('|')) return {k:'출력 순서 다름',d:'값은 모두 맞지만 순서가 다릅니다. 반복 방향(증가/감소)이나 중첩 순서를 확인하세요.'};
-  return {k:'값이 다름',d:'아래 추적표에서 변수 변화를 한 회차씩 따라가 보세요.'};
+  return {k:'값이 다름',d:'코드를 한 줄씩 따라가며 변수값을 적어 보세요.'};
 }
-function pMaskQ(t){
-  if(t.q) return t.q;
-  let d=t.def, toks=[t.ko].concat((t.en||'').split(/[;,]/)).map(x=>x.trim());
-  toks.sort((a,b)=>b.length-a.length).forEach(x=>{
-    if(x.length>=2) d=d.replace(new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),'○○○');
-  });
-  return d;
-}
-function pTermOk(user,q){
-  const u=pnK(user); if(!u) return false;
-  const cands=[q.ko].concat((q.en||'').split(/[;,]/));
-  return cands.some(c=>{c=pnK(c); return c.length>1&&(u===c||(c.length>3&&u.indexOf(c)>=0)||(u.length>3&&c.indexOf(u)>=0))});
+
+function pGrade(q,user){
+  const u=pn(user);
+  if(!pnK(u)) return {ok:false,pat:'미입력'};
+  const cands=[q.a].concat(q.alt||[]).filter(Boolean);
+  if(cands.some(c=>pn(c)===u))  return {ok:true,pat:''};
+  if(cands.some(c=>pnL(c)===pnL(u))) return {ok:true,pat:q.type==='code'?'공백·개행만 다름':''};
+  const uk=pnK(u);
+  if(cands.some(c=>pnK(c)===uk)) return {ok:true,pat:''};
+  if(q.type!=='code'&&cands.some(c=>{const k=pnK(c);
+      return k.length>=3&&(uk.indexOf(k)>=0||(uk.length>=3&&k.indexOf(uk)>=0))}))
+    return {ok:true,pat:''};
+  const parts=pParts(q.a);
+  if(parts.length>1){
+    const got=parts.filter(p=>{const k=pnK(p); return k&&uk.indexOf(k)>=0}).length;
+    if(got) return {ok:got===parts.length,part:[got,parts.length],
+                    pat:got===parts.length?'':'일부만 맞음 ('+got+'/'+parts.length+')'};
+  }
+  if(q.type==='code'){ const d=pDiag(u,q.a); if(d) return {ok:false,pat:d.k,diag:d} }
+  return {ok:false,pat:'답이 다름'};
 }
 
 /* ── 기록 ──────────────────────────────────────────────── */
-function pRec(q,ok,val,pat){
-  const P=PS(), tags=q.tags&&q.tags.length?q.tags:[q.dom];
-  P.ans[q.id]={ok:!!ok,v:String(val==null?'':val).slice(0,300),t:Date.now(),
-               kind:q.code?'code':'term',pat:pat||'',tags:tags};
-  tags.forEach(t=>{P.tag[t]=(P.tag[t]||0)+(ok?-0.5:1); if(P.tag[t]<0)P.tag[t]=0});
+function pRec(q,g,val){
+  const P=PS(), tags=(q.tags&&q.tags.length)?q.tags:[TLABEL[q.type]];
+  P.ans[q.id]={ok:!!g.ok,v:String(val==null?'':val).slice(0,300),t:Date.now(),
+               type:q.type,exam:q.exam,pat:g.pat||'',part:g.part||null,tags:tags};
+  tags.forEach(t=>{P.tag[t]=(P.tag[t]||0)+(g.ok?-0.5:1); if(P.tag[t]<0)P.tag[t]=0});
   save();
 }
-function pStat(kind){
-  const A=Object.values(PS().ans).filter(a=>!kind||a.kind===kind);
+function pStat(pred){
+  const A=Object.entries(PS().ans).filter(([id,a])=>!pred||pred(a,id)).map(x=>x[1]);
   const n=A.length, ok=A.filter(a=>a.ok).length;
   return {n:n,ok:ok,rate:n?Math.round(ok/n*100):0};
 }
@@ -1708,566 +1731,402 @@ function pPatStats(){
 }
 
 /* ── 코드 하이라이팅 ───────────────────────────────────── */
-const P_KW=/\b(if|else|for|while|do|switch|case|break|continue|return|goto|new|class|public|private|protected|static|void|final|extends|implements|import|package|try|catch|finally|throw|throws|def|elif|in|not|and|or|None|True|False|print|struct|typedef|sizeof|include|define|main)\b/g;
-const P_TY=/\b(int|long|short|float|double|char|boolean|unsigned|signed|String|self)\b/g;
+const P_KW=/\b(if|else|for|while|do|switch|case|break|continue|return|goto|new|class|public|private|protected|static|void|final|extends|implements|import|package|try|catch|finally|throw|throws|def|elif|in|not|and|or|None|True|False|print|struct|union|typedef|sizeof|include|define|main|select|from|where|group|by|having|order|insert|into|values|update|set|delete|create|table|distinct|between|and|not|join|using|check|unique|index)\b/gi;
+const P_TY=/\b(int|long|short|float|double|char|boolean|unsigned|signed|String|self|varchar)\b/g;
 function hl(src){
+  // 색을 입힌 조각은 곧바로 자리표시자로 빼 둔다. 그래야 뒤따르는 패스가
+  // 방금 넣은 마크업(class= 등)을 다시 키워드로 잡는 일이 없다.
+  // 자리표시자 글자는 q~z — 어떤 키워드도 이 글자들만으로 이루어지지 않는다.
   let s=esc(src); const box=[];
-  const enc=n=>String(n).split('').map(d=>String.fromCharCode(97+ +d)).join('');
-  const dec=t=>+t.split('').map(ch=>ch.charCodeAt(0)-97).join('');
-  const stash=(t,c)=>{box.push('<span class="'+c+'">'+t+'</span>');return ''+enc(box.length-1)+''};
+  const enc=n=>String(n).split('').map(d=>String.fromCharCode(113+ +d)).join('');
+  const dec=t=>+t.split('').map(ch=>ch.charCodeAt(0)-113).join('');
+  const stash=(t,c)=>{box.push('<span class="'+c+'">'+t+'</span>');return '\x01'+enc(box.length-1)+'\x01'};
   s=s.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g,m=>stash(m,'cm'));
   s=s.replace(/(&quot;(?:[^&\n]|&(?!quot;))*?&quot;|&#39;[^\n]*?&#39;)/g,m=>stash(m,'st'));
-  s=s.replace(P_TY,'<span class="ty">$1</span>').replace(P_KW,'<span class="kw">$1</span>');
-  s=s.replace(/\b(\d+\.?\d*)\b/g,'<span class="nu">$1</span>');
-  s=s.replace(/([a-j]+)/g,(_,t)=>box[dec(t)]);
+  s=s.replace(P_TY,m=>stash(m,'ty')).replace(P_KW,m=>stash(m,'kw'));
+  s=s.replace(/\b(\d+\.?\d*)\b/g,m=>stash(m,'nu'));
+  s=s.replace(/\x01([q-z]+)\x01/g,(_,t)=>box[dec(t)]);
   return s;
 }
+const nl2br=t=>esc(t).replace(/\n/g,'<br>');
+const examTitle=id=>{const e=(PD.idx.exams||[]).filter(x=>x.id===id)[0]; return e?e.title:id};
 
-/* ── 실기 홈 ───────────────────────────────────────────── */
+/* ══ 진도 유틸 ═════════════════════════════════════════ */
+function pDone(list){ const A=PS().ans; return list.filter(q=>A[q.id]).length }
+function pOk(list){ const A=PS().ans; return list.filter(q=>A[q.id]&&A[q.id].ok).length }
+function pBar(done,ok,total){
+  const d=total?Math.round(done/total*100):0, o=total?Math.round(ok/total*100):0;
+  return '<div class="mini" style="margin-top:6px"><i style="width:'+o+'%;background:var(--ok)"></i></div>'+
+         '<div class="tiny muted" style="margin-top:3px">'+done+'/'+total+' 풀이 · 정답 '+ok+'개'+(d?' ('+Math.round(ok/Math.max(done,1)*100)+'%)':'')+'</div>';
+}
+
+/* ══ 실기 홈 ═══════════════════════════════════════════ */
 async function vPHome(){
   if(!await pLoad())return;
-  const sc=pStat('code'), st=pStat('term'), all=pStat();
-  const weak=pTagStats().filter(x=>x.n>=3&&x.rate<70).slice(0,5);
+  const all=pStat(), A=PS().ans;
+  const weak=pTagStats().filter(x=>x.n>=3&&x.rate<70).slice(0,6);
   const pats=pPatStats().slice(0,4);
-  const R=PSr(), rdn=PD.note.filter(n=>R[n.id]).length, rdt=PD.term.filter(t=>R[t.id]).length;
+  const wrong=Object.keys(A).filter(id=>!A[id].ok).length;
+  const R=PSr(), rdn=PD.note.filter(n=>R[n.id]).length;
+
   app().innerHTML=
   '<h2 class="sec">학습 현황</h2>'+
   '<div class="grid3">'+
     '<div class="kpi"><div class="v">'+all.n+'</div><div class="k">푼 문제</div></div>'+
     '<div class="kpi"><div class="v" style="color:'+(all.rate>=60?'var(--ok)':'var(--wn)')+'">'+all.rate+'%</div><div class="k">정답률</div></div>'+
-    '<div class="kpi"><div class="v">'+(PD.idx.code.n+PD.idx.term.n)+'</div><div class="k">전체 문항</div></div>'+
+    '<div class="kpi"><div class="v">'+PD.idx.n+'</div><div class="k">전체 기출</div></div>'+
   '</div>'+
-  '<div class="card tight"><div class="row small">'+
-    '<span style="flex:1">코드 출력 <b>'+sc.n+'</b> / '+PD.idx.code.n+'</span>'+
-    '<span class="muted tiny">정답률 '+sc.rate+'%</span></div>'+
-    '<div class="mini" style="margin-top:6px"><i style="width:'+(sc.n/PD.idx.code.n*100)+'%;background:var(--ac)"></i></div>'+
-    '<div class="row small" style="margin-top:10px">'+
-    '<span style="flex:1">단답형 용어 <b>'+st.n+'</b> / '+PD.idx.term.n+'</span>'+
-    '<span class="muted tiny">정답률 '+st.rate+'%</span></div>'+
-    '<div class="mini" style="margin-top:6px"><i style="width:'+(st.n/PD.idx.term.n*100)+'%;background:var(--pu)"></i></div>'+
-  '</div>'+
-  '<h2 class="sec">바로 시작</h2><div class="grid2">'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=random&n=15\')">코드 랜덤 15문항</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=random&n=20\')">단답형 랜덤 20문항</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 코드 다시</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=weak&n=15\')">취약 문법 집중</button>'+
-  '</div>'+
-  '<h2 class="sec">언어별</h2><div class="grid3">'+PD.idx.code.langs.map(l=>
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=lang&k='+encodeURIComponent(l.k)+'\')">'+l.k+
-    '<br><span class="tiny muted">'+l.n+'문항</span></button>').join('')+'</div>'+
-  (weak.length?'<h2 class="sec">취약 문법 TOP '+weak.length+'</h2>'+weak.map(w=>
-    '<button class="lrow" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(w.t)+'\')">'+
-    '<span class="chip no">'+w.rate+'%</span><span class="g"><span class="t">'+esc(w.t)+'</span>'+
-    '<span class="s">'+w.ok+'/'+w.n+' 정답</span></span><span class="muted">›</span></button>').join(''):'')+
-  (pats.length?'<h2 class="sec">내 오답 패턴</h2><div class="card tight">'+pats.map(p=>
-    '<div class="row small" style="padding:3px 0"><span style="flex:1">'+esc(p.k)+'</span>'+
-    '<span class="chip no">'+p.v+'회</span></div>').join('')+
-    '<div style="margin-top:8px"><button class="btn gh sm" onclick="go(\'#/pwrong\')">오답노트 보기 →</button></div></div>':'')+
-  '<h2 class="sec">먼저 익히기</h2><div class="grid2">'+
-    '<button class="btn" onclick="go(\'#/pnote?tab=code\')">문법 노트 '+PD.note.length+'개<br>'+
-      '<span class="tiny muted">규칙 · 함정 · 검증 예제</span></button>'+
-    '<button class="btn" onclick="go(\'#/pnote?tab=term\')">개념 용어 '+PD.term.length+'개<br>'+
-      '<span class="tiny muted">분야별 · 검색</span></button></div>'+
-  ((rdn+rdt)?'<div class="card tight small"><div class="row"><span style="flex:1">학습 완료 표시</span>'+
-    '<span class="muted tiny">문법 '+rdn+'/'+PD.note.length+' · 용어 '+rdt+'/'+PD.term.length+'</span></div>'+
-    '<div class="mini" style="margin-top:6px"><i style="width:'+((rdn+rdt)/(PD.note.length+PD.term.length)*100)+'%;background:var(--ok)"></i></div></div>':'')+
-  '<div class="card tight tiny muted" style="margin-top:16px">코드 <b>'+PD.idx.code.n+
-    '</b>문항의 정답은 실제로 컴파일·실행해 얻은 출력입니다. 그중 <b>'+PD.idx.code.withTrace+
-    '</b>문항은 반복 회차별 변수 추적표가 함께 제공됩니다.</div>'+
-  '<h2 class="sec">기록 관리</h2>'+
-  '<div class="card"><div class="tiny muted" style="margin-bottom:8px">'+
-    '실기 풀이 기록만 지웁니다. 필기 기록은 영향을 받지 않습니다.</div>'+
-    '<div class="grid3">'+
-      '<button class="btn sm" onclick="pReset(\'code\')">코드 기록<br><span class="tiny muted">'+sc.n+'건</span></button>'+
-      '<button class="btn sm" onclick="pReset(\'term\')">단답 기록<br><span class="tiny muted">'+st.n+'건</span></button>'+
-      '<button class="btn sm" style="color:var(--no)" onclick="pReset(\'all\')">실기 전체<br><span class="tiny muted">'+all.n+'건</span></button>'+
-    '</div>'+
-    '<div style="margin-top:8px"><button class="btn sm gh" onclick="pResetRead()">학습 완료 표시 지우기 ('+(rdn+rdt)+'건)</button></div>'+
-  '</div><div style="height:20px"></div>';
+  '<div class="card tight"><div class="small">'+
+    '<b>정보처리산업기사 실기 기출 '+PD.idx.n+'문항</b> — 2022년 1회부터 2025년 3회까지 12회차'+
+    '<div class="tiny muted" style="margin-top:4px">'+esc(PD.idx.src)+
+    (PD.idx.nPartial?' · 지문이 온전히 복원되지 않은 '+PD.idx.nPartial+'문항은 <b>참고용</b>으로 표시됩니다':'')+'</div>'+
+    pBar(all.n,all.ok,PD.idx.n)+
+  '</div></div>'+
+
+  '<h2 class="sec">바로 풀기</h2>'+
+  '<div class="card tight"><div class="row" style="flex-wrap:wrap;gap:7px">'+
+    '<button class="btn" onclick="go(\'#/pplay?mode=unsolved&n=20\')">안 푼 문제 20개</button>'+
+    '<button class="btn gh" onclick="go(\'#/pplay?mode=wrong\')">틀린 문제 다시 ('+wrong+')</button>'+
+    '<button class="btn gh" onclick="go(\'#/pplay?mode=random&n=20\')">랜덤 20문항</button>'+
+    (weak.length?'<button class="btn gh" onclick="go(\'#/pplay?tag='+encodeURIComponent(weak[0].t)+'\')">약점: '+esc(weak[0].t)+'</button>':'')+
+  '</div></div>'+
+
+  '<h2 class="sec">유형별</h2>'+
+  '<div class="card tight">'+PD.idx.types.map(t=>{
+    const L=PD.exam.filter(q=>q.type===t.k);
+    return '<div class="lrow" onclick="go(\'#/pplay?type='+t.k+'\')" style="cursor:pointer">'+
+      '<div class="g"><b>'+esc(t.label)+'</b><span class="s">'+pDone(L)+' / '+t.n+' 풀이</span></div>'+
+      '<span class="chip" style="color:'+TCOLOR[t.k]+'">'+t.n+'</span></div>';
+  }).join('')+'</div>'+
+
+  (weak.length?'<h2 class="sec">약한 개념</h2><div class="card tight">'+
+    weak.map(w=>'<div class="lrow" onclick="go(\'#/pplay?tag='+encodeURIComponent(w.t)+'\')" style="cursor:pointer">'+
+      '<div class="g"><b>'+esc(w.t)+'</b><span class="s">'+w.n+'문항 중 '+w.ok+'개 정답</span></div>'+
+      '<span class="chip" style="color:var(--no);border-color:#5c2b2b">'+w.rate+'%</span></div>').join('')+
+    '</div>':'')+
+
+  (pats.length?'<h2 class="sec">자주 나온 실수</h2><div class="card tight">'+
+    pats.map(p=>'<div class="lrow"><div class="g"><b>'+esc(p.k)+'</b></div><span class="chip">'+p.v+'회</span></div>').join('')+
+    '</div>':'')+
+
+  '<h2 class="sec">학습노트</h2>'+
+  '<div class="card tight"><div class="lrow" onclick="go(\'#/pnote\')" style="cursor:pointer">'+
+    '<div class="g"><b>기출 분석 학습노트 '+PD.note.length+'개</b>'+
+    '<span class="s">12회차 기출에서 반복되는 개념만 정리 · '+rdn+'개 완료</span></div><span class="chip">→</span></div></div>'+
+
+  '<div class="card tight" style="margin-top:14px"><div class="row" style="flex-wrap:wrap;gap:7px">'+
+    '<button class="btn sm gh" onclick="pReset(\'all\')">실기 기록 초기화</button>'+
+    '<button class="btn sm gh" onclick="pResetRead()">학습노트 완료 표시 초기화</button>'+
+  '</div></div>';
 }
 
-/* ── 문제 고르기 ──────────────────────────────────────── */
-function pPickList(a){
-  const t=(a.t==='term')?'term':'code';
-  let list=(t==='term'?PD.term:PD.code).slice(), title='';
-  const A=PS().ans, m=a.mode||'random', k=decodeURIComponent(a.k||'');
-  if(m==='wrong'){ list=list.filter(q=>A[q.id]&&!A[q.id].ok); title=(t==='term'?'단답형':'코드')+' 틀린 문제'; }
-  else if(m==='lang'){ list=list.filter(q=>q.lang===k); title=k+' 코드'; }
-  else if(m==='tag'){  list=list.filter(q=>(q.tags||[]).indexOf(k)>=0); title=k; }
-  else if(m==='dom'){  list=list.filter(q=>q.dom===k); title=k; }
-  else if(m==='kind'){ list=list.filter(q=>q.kind===k); title=k+' 문제'; }
-  else if(m==='sec'){  list=list.filter(q=>String(q.sec)===k); title='Section '+k; }
-  else if(m==='new'){  list=list.filter(q=>!A[q.id]); title='안 푼 문제'; }
-  else if(m==='weak'){
-    const w=pTagStats().filter(x=>x.n>=2&&x.rate<75).slice(0,10).map(x=>x.t);
-    let c=w.length?list.filter(q=>(q.tags||[q.dom]).some(x=>w.indexOf(x)>=0)):[];
-    if(!c.length)c=list.slice();
-    c.sort((x,y)=>{const f=q=>(A[q.id]?(A[q.id].ok?2:0):1);return f(x)-f(y)});
-    list=c; title='취약 문법 집중';
-  }
-  if(m!=='weak') list=shuffle(list);
-  if(a.n) list=list.slice(0,+a.n);
-  return {list:list,title:title||((t==='term'?'단답형':'코드 출력')+' '+list.length+'문항')};
+/* ══ 회차별 ════════════════════════════════════════════ */
+async function vPExam(){
+  if(!await pLoad())return;
+  document.getElementById('hTitle').textContent='회차별 기출';
+  app().innerHTML=
+  '<h2 class="sec">회차별 기출 <span class="tiny muted">12회차 · '+PD.idx.n+'문항</span></h2>'+
+  PD.idx.exams.map(e=>{
+    const L=PD.byExam[e.id]||[], d=pDone(L), o=pOk(L);
+    return '<div class="card tight"><div class="row">'+
+      '<div style="flex:1"><b style="font-size:15px">'+esc(e.title)+'</b> '+
+      '<span class="chip">'+e.n+'문항</span> <span class="tiny muted">'+esc(e.date)+' · '+esc(e['pass'])+'</span>'+
+      (e.note?'<div class="tiny" style="color:var(--wn);margin-top:3px">'+esc(e.note)+'</div>':'')+
+      pBar(d,o,e.n)+'</div>'+
+      '<button class="btn sm" style="margin-left:10px" onclick="go(\'#/pplay?exam='+e.id+'\')">'+(d?'이어풀기':'풀기')+'</button>'+
+      '</div></div>';
+  }).join('');
 }
 
+/* ══ 유형별 · 태그별 ═══════════════════════════════════ */
+let TF={by:'type'};
+async function vPType(){
+  if(!await pLoad())return;
+  document.getElementById('hTitle').textContent='유형별 기출';
+  const tabs=[['type','유형'],['lang','언어'],['tag','개념']];
+  const rows=(TF.by==='type'?PD.idx.types.map(t=>({k:t.k,label:t.label,n:t.n,q:'type='+t.k}))
+             :TF.by==='lang'?PD.idx.langs.map(t=>({k:t.k,label:t.k,n:t.n,q:'lang='+encodeURIComponent(t.k)}))
+             :PD.idx.tags.filter(t=>t.n>=2).map(t=>({k:t.k,label:t.k,n:t.n,q:'tag='+encodeURIComponent(t.k)})));
+  app().innerHTML=
+  '<div class="frow">'+tabs.map(t=>'<button class="fchip'+(TF.by===t[0]?' on':'')+'" onclick="TF.by=\''+t[0]+'\';vPType()">'+t[1]+'</button>').join('')+'</div>'+
+  '<div class="card tight">'+rows.map(r=>{
+    const L=PD.exam.filter(q=>TF.by==='type'?q.type===r.k:TF.by==='lang'?q.lang===r.k:(q.tags||[]).indexOf(r.k)>=0);
+    const d=pDone(L), o=pOk(L);
+    return '<div class="lrow" onclick="go(\'#/pplay?'+r.q+'\')" style="cursor:pointer">'+
+      '<div class="g"><b>'+esc(r.label)+'</b><span class="s">'+d+'/'+r.n+' 풀이'+(d?' · 정답 '+o+'개':'')+'</span></div>'+
+      '<span class="chip">'+r.n+'</span></div>';
+  }).join('')+'</div>';
+}
+
+/* ══ 문제 풀이 ═════════════════════════════════════════ */
 async function vPPlay(a){
   if(!await pLoad())return;
-  const r=pPickList(a);
-  if(!r.list.length){app().innerHTML='<div class="empty">해당하는 문제가 없습니다.<br><br><button class="btn" onclick="go(\'#/phome\')">돌아가기</button></div>';return}
-  PP={list:r.list,i:0,title:r.title,t:(a.t==='term'?'term':'code'),shown:{}};
+  const A=PS().ans;
+  let list=[], title='';
+  if(a.id){ const q=PD.byId[a.id]; if(q){list=[q];title=q.exam+' '+q.no+'번'} }
+  else if(a.exam){ list=(PD.byExam[a.exam]||[]).slice(); title=examTitle(a.exam) }
+  else if(a.type){ list=PD.exam.filter(q=>q.type===a.type); title=TLABEL[a.type]||a.type }
+  else if(a.lang){ list=PD.exam.filter(q=>q.lang===a.lang); title=a.lang }
+  else if(a.tag){ list=PD.exam.filter(q=>(q.tags||[]).indexOf(a.tag)>=0); title=a.tag }
+  else if(a.note){ const n=PD.note.filter(x=>x.id===a.note)[0];
+                   if(n){ list=(n.qids||[]).map(i=>PD.byId[i]).filter(Boolean); title=n.title } }
+  else if(a.mode==='wrong'){ list=PD.exam.filter(q=>A[q.id]&&!A[q.id].ok); title='틀린 문제' }
+  else if(a.mode==='unsolved'){ list=pShuffle(PD.exam.filter(q=>!A[q.id]&&!q.partial)); title='안 푼 문제' }
+  else { list=pShuffle(PD.exam.filter(q=>!q.partial)); title='랜덤' }
+  if(a.n) list=list.slice(0,+a.n);
+  if(!list.length){ app().innerHTML='<div class="empty">해당하는 문제가 없습니다.</div>'; return }
+
+  const first=list.findIndex(q=>!A[q.id]);
+  PP={list:list,i:first<0?0:first,title:title,shown:{},from:location.hash};
+  list.forEach(q=>{ if(A[q.id])PP.shown[q.id]=1 });
   pDraw();
 }
-function pMv(d){
-  if(d>0&&PP.i===PP.list.length-1){ go('#/pana'); return }
-  PP.i=Math.max(0,Math.min(PP.list.length-1,PP.i+d)); window.scrollTo(0,0); pDraw();
-}
-function pToggleMode(){ const P=PS(); P.mode=(P.mode==='input')?'choice':'input'; save(); pDraw() }
-function pSkip(){ const q=PP.list[PP.i]; if(!PS().ans[q.id]) pRec(q,false,'','모르겠음'); PP.shown[q.id]=1; pDraw() }
-function pRetry(id){ const P=PS(); delete P.ans[id]; save(); delete PP.shown[id]; pDraw() }
+function pShuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
 function pDraw(){
-  const q=PP.list[PP.i], A=PS().ans, rec=A[q.id], shown=PP.shown[q.id]||!!rec, mode=PS().mode;
+  const q=PP.list[PP.i], rec=PS().ans[q.id], shown=!!PP.shown[q.id];
   document.getElementById('hTitle').textContent=PP.title;
   app().innerHTML=
-  '<div class="row" style="margin:12px 0 4px">'+
-    '<span class="tiny muted">'+(PP.i+1)+' / '+PP.list.length+'</span>'+
-    '<div class="bar" style="flex:1"><i style="width:'+((PP.i+1)/PP.list.length*100)+'%"></i></div>'+
-    '<button class="btn sm gh" onclick="pToggleMode()">'+(mode==='input'?'주관식':'4지선다')+'</button>'+
-    '<button class="btn sm gh" onclick="go(\'#/phome\')">나가기</button></div>'+
-  (PP.t==='code'?pCodeBody(q,rec,shown,mode):pTermBody(q,rec,shown,mode))+
-  '<div style="height:78px"></div>'+
-  '<div class="sticky-bot"><div class="wrap row">'+
-    '<button class="btn" onclick="pMv(-1)" '+(PP.i?'':'disabled')+'>‹ 이전</button>'+
-    (shown?'':'<button class="btn gh sm" onclick="pSkip()">모르겠음</button>')+
-    '<div class="sp" style="flex:1"></div>'+
-    (shown?'<button class="btn pri" onclick="pMv(1)">'+(PP.i===PP.list.length-1?'결과 보기':'다음 ›')+'</button>'
-          :'<button class="btn pri" onclick="pSubmit()">채점</button>')+
-  '</div></div>';
+  '<div class="row small" style="margin:10px 0 6px">'+
+    '<span class="muted">'+(PP.i+1)+' / '+PP.list.length+'</span><div style="flex:1"></div>'+
+    '<button class="btn sm gh" onclick="pMv(-1)" '+(PP.i?'':'disabled')+'>이전</button>'+
+    '<button class="btn sm gh" onclick="pMv(1)" '+(PP.i<PP.list.length-1?'':'disabled')+'>다음</button>'+
+  '</div>'+
+  pQCard(q,rec,shown)+
+  (PP.i===PP.list.length-1&&shown?'<div class="card tight" style="margin-top:12px"><div class="row">'+
+    '<div style="flex:1" class="small"><b>이 묶음을 모두 풀었습니다.</b></div>'+
+    '<button class="btn sm" onclick="go(\'#/pwrong\')">오답노트</button></div></div>':'');
   const ta=document.getElementById('pAns');
-  if(ta&&!shown){ ta.focus();
-    ta.onkeydown=e=>{ if(e.key==='Enter'&&(PP.t==='term'||e.ctrlKey||e.metaKey)){e.preventDefault();pSubmit()} }; }
+  if(ta){
+    ta.focus();
+    ta.onkeydown=e=>{ if(e.key==='Enter'&&(!e.shiftKey)&&ta.rows<=2){e.preventDefault();pSubmit()} };
+  }
 }
 
-function pCodeBody(q,rec,shown,mode){
+function pQCard(q,rec,shown){
+  const g=shown&&rec?{ok:rec.ok,pat:rec.pat,part:rec.part}:null;
+  const notes=PD.noteOf[q.id]||[];
+  const multi=(q.type==='code'&&q.a.indexOf('\n')>=0)||q.a.length>28;
   return '<div class="card">'+
-    '<div class="qhd"><span class="chip s1">'+q.lang+'</span><span class="chip">'+esc(q.kind)+'</span>'+
-      (q.sec>0?'<span class="chip">Section '+('00'+q.sec).slice(-3)+'</span>':'')+
-      '<div style="flex:1"></div>'+
-      (q.tr?'<span class="chip" style="color:var(--pu);border-color:#463a7a">추적표</span>':'')+'</div>'+
-    '<div class="stem" style="margin:6px 0 2px">다음 '+q.lang+' 프로그램의 <b>출력 결과</b>를 쓰시오.</div>'+
-    (q['in']?'<div class="tiny muted" style="margin:4px 0">입력값: <b>'+q['in'].join(', ')+'</b></div>':'')+
-    '<pre class="code">'+hl(q.code)+'</pre>'+
-    (shown?pCodeFb(q,rec):(mode==='input'
-      ?'<div class="tiny muted" style="margin:10px 0 5px">출력 결과 (여러 줄이면 줄바꿈 그대로)</div>'+
-       '<textarea class="ansbox" id="pAns" rows="'+Math.min(5,Math.max(1,q.a.split('\n').length))+'" spellcheck="false" autocapitalize="off"></textarea>'+
-       '<div class="tiny muted" style="margin-top:5px">Ctrl+Enter 로 채점</div>'
-      :'<div class="opts" style="margin-top:10px">'+q.opts.map((o,k)=>
-         '<button class="opt" onclick="pPickOpt('+(k+1)+')"><b>'+CIRC[k]+'</b><span style="font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap">'+esc(o)+'</span></button>').join('')+'</div>'))+
+  '<div class="qhd">'+
+    '<span class="chip">'+esc(examTitle(q.exam))+' '+q.no+'번</span>'+
+    '<span class="chip" style="color:'+TCOLOR[q.type]+'">'+TLABEL[q.type]+'</span>'+
+    (q.lang?'<span class="chip">'+esc(q.lang)+'</span>':'')+
+    '<div style="flex:1"></div>'+
+    (rec?'<span class="chip '+(rec.ok?'ok2':'')+'" style="'+(rec.ok?'':'color:var(--no);border-color:#5c2b2b')+'">'+(rec.ok?'정답':'오답')+'</span>':'')+
+  '</div>'+
+  (q.partial?'<div class="diag" style="margin:8px 0"><b>복원 미완</b> — 가답안만 전해진 문항입니다. 정답과 해설만 참고하세요.</div>':'')+
+  '<div class="stem" style="margin:9px 0 4px">'+nl2br(q.q)+'</div>'+
+  (q.code?'<pre class="code">'+hl(q.code)+'</pre>':'')+
+  (q.choices?'<div class="card2box" style="background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:9px 12px;margin:8px 0">'+
+     '<div class="tiny muted" style="margin-bottom:4px">보기</div>'+
+     q.choices.map(c=>'<div style="font-size:14px;line-height:1.7">'+esc(c)+'</div>').join('')+'</div>':'')+
+  (shown
+   ? '<div class="fb '+(rec&&rec.ok?'ok':'no')+'" style="margin-top:12px"><b>'+(rec&&rec.ok?'✔ 정답':'✘ 오답')+'</b>'+
+     (rec&&rec.v?' — 내 답: '+esc(rec.v):'')+(rec&&rec.pat?' <span class="tiny">('+esc(rec.pat)+')</span>':'')+'</div>'+
+     '<div class="tiny muted" style="margin:10px 0 2px">정답</div>'+
+     '<div class="outbox ok">'+esc(q.a)+'</div>'+
+     ((q.alt&&q.alt.length)?'<div class="tiny muted" style="margin-top:4px">함께 인정: '+q.alt.map(esc).join(' / ')+'</div>':'')+
+     (q.why?'<div class="tiny muted" style="margin:11px 0 2px">해설</div><div class="ntrap" style="border-left-color:var(--ac);background:#122036"><div style="font-size:14px;line-height:1.7">'+nl2br(q.why)+'</div></div>':'')+
+     (q.unit?'<div class="tiny muted" style="margin-top:8px">출제 범위: '+esc(q.unit)+'</div>':'')+
+     ((q.tags&&q.tags.length)?'<div class="frow" style="margin-top:7px">'+q.tags.map(t=>
+        '<a class="fchip" href="#/pplay?tag='+encodeURIComponent(t)+'">'+esc(t)+'</a>').join('')+'</div>':'')+
+     (notes.length?'<div class="tiny muted" style="margin:9px 0 3px">관련 학습노트</div>'+
+        notes.map(n=>'<div class="lrow" onclick="go(\'#/pnv?id='+n.id+'\')" style="cursor:pointer">'+
+          '<div class="g"><b>'+esc(n.title)+'</b><span class="s">'+esc(n.cat)+'</span></div><span class="chip">→</span></div>').join('')
+      :'')+
+     '<div class="row" style="margin-top:11px;gap:7px"><button class="btn sm gh" onclick="pRetry(\''+q.id+'\')">다시 풀기</button>'+
+     (q.code?'<button class="btn sm gh" onclick="pCopyPrompt(\''+q.id+'\')">AI 설명 프롬프트 복사</button>':'')+'</div>'
+   : '<div class="tiny muted" style="margin:13px 0 5px">답안'+(multi?' (여러 줄이면 줄바꿈까지 그대로)':'')+'</div>'+
+     '<textarea class="ansbox" id="pAns" rows="'+(multi?3:1)+'" spellcheck="false" autocapitalize="off"></textarea>'+
+     '<div class="row" style="margin-top:8px;gap:7px">'+
+       '<button class="btn sm" onclick="pSubmit()">채점</button>'+
+       '<button class="btn sm gh" onclick="pGiveUp()">모르겠음 · 정답 보기</button>'+
+     '</div>'+
+     '<div class="tiny muted" style="margin-top:5px">'+(multi?'채점 버튼으로 제출':'Enter 로 채점')+'</div>')+
   '</div>';
 }
-function pCodeFb(q,rec){
-  const ok=rec&&rec.ok, user=rec?rec.v:'', dg=ok?null:pDiag(user,q.a);
-  return '<div class="fb '+(ok?'ok':'no')+'" style="margin-top:12px"><b>'+(ok?'✔ 정답':'✘ 오답')+'</b></div>'+
-    (!ok?'<div class="tiny muted" style="margin:8px 0 2px">내 답</div><div class="outbox no">'+(esc(user)||'(없음)')+'</div>':'')+
-    '<div class="tiny muted" style="margin:8px 0 2px">정답 (실제 실행 결과)</div><div class="outbox ok">'+esc(q.a)+'</div>'+
-    (dg?'<div class="diag"><b>'+esc(dg.k)+'</b><br><span class="small">'+esc(dg.d)+'</span></div>':'')+
-    (q.tr?pTrace(q.tr):'<div class="tiny muted" style="margin-top:8px">이 문항은 자동 추적표가 없습니다. 코드를 한 줄씩 따라가 보세요.</div>')+
-    '<div class="row" style="margin-top:10px;gap:6px">'+
-      '<button class="btn sm gh" onclick="pCopyPrompt(\''+q.id+'\')">AI 해설 프롬프트 복사</button>'+
-      '<button class="btn sm gh" onclick="pRetry(\''+q.id+'\')">다시 풀기</button></div>';
-}
-function pTrace(tr){
-  const lab=tr.mode==='loop'?'반복 회차별 변수 추적':(tr.mode==='py'?'실행 단계별 변수 추적':'문장별 변수 추적');
-  return '<div class="tiny muted" style="margin:12px 0 3px">'+lab+(tr.trunc?' (앞 40단계)':'')+'</div>'+
-  '<div class="trwrap"><table class="tr"><thead><tr><th class="i">#</th>'+
-  tr.cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
-  tr.rows.map((r,i)=>'<tr><td class="i">'+(i+1)+'</td>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')+
-  '</tbody></table></div>';
-}
-function pTermBody(q,rec,shown,mode){
-  const ok=rec&&rec.ok;
-  return '<div class="card">'+
-    '<div class="qhd"><span class="chip" style="color:var(--pu);border-color:#463a7a">'+esc(q.dom)+'</span>'+
-      '<span class="chip">'+esc(q.src)+'</span><div style="flex:1"></div></div>'+
-    '<div class="stem" style="margin:8px 0">다음 설명에 해당하는 <b>용어</b>를 쓰시오.</div>'+
-    '<div class="outbox" style="font-family:inherit;font-size:14px;white-space:normal">'+esc(pMaskQ(q))+'</div>'+
-    (shown
-      ?'<div class="fb '+(ok?'ok':'no')+'" style="margin-top:12px"><b>'+(ok?'✔ 정답':'✘ 오답')+'</b>'+
-       (rec&&rec.v?' — 내 답: '+esc(rec.v):'')+'</div>'+
-       '<div class="tiny muted" style="margin:10px 0 2px">정답</div>'+
-       '<div class="outbox ok" style="font-family:inherit">'+esc(q.ko)+(q.en?' ('+esc(q.en)+')':'')+'</div>'+
-       '<div class="tiny muted" style="margin-top:6px">출처: '+esc(q.src)+(q.more?' · '+esc(q.more):'')+'</div>'+
-       '<div class="row" style="margin-top:10px"><button class="btn sm gh" onclick="pRetry(\''+q.id+'\')">다시 풀기</button></div>'
-      :(mode==='input'
-        ?'<div class="tiny muted" style="margin:12px 0 5px">용어 (한글 또는 영문 약어)</div>'+
-         '<textarea class="ansbox" id="pAns" rows="1" spellcheck="false" autocapitalize="off"></textarea>'+
-         '<div class="tiny muted" style="margin-top:5px">Enter 로 채점</div>'
-        :'<div class="opts" style="margin-top:12px">'+q.opts.map((o,k)=>
-           '<button class="opt" onclick="pPickOpt('+(k+1)+')"><b>'+CIRC[k]+'</b><span>'+esc(o)+'</span></button>').join('')+'</div>'))+
-  '</div>';
-}
-function pPickOpt(k){
-  const q=PP.list[PP.i], val=q.opts[k-1], ok=(k===q.ans);
-  let pat='';
-  if(!ok) pat = (PP.t==='code') ? ((pDiag(val,q.a)||{}).k||'값이 다름') : '다른 용어와 혼동';
-  pRec(q,ok,val,pat); PP.shown[q.id]=1; pDraw();
-}
+
 function pSubmit(){
   const q=PP.list[PP.i], ta=document.getElementById('pAns'), v=ta?ta.value:'';
-  if(PP.t==='code'){
-    const exact=(pn(v)===pn(q.a)), loose=(pnL(v)===pnL(q.a)), dg=pDiag(v,q.a);
-    pRec(q,exact||loose,v,exact?'':(dg?dg.k:''));
-    if(loose&&!exact) toast('값은 맞았습니다 — 공백·개행 차이');
-  }else pRec(q,pTermOk(v,q),v,'');
-  PP.shown[q.id]=1; pDraw();
+  const g=pGrade(q,v);
+  pRec(q,g,v); PP.shown[q.id]=1; pDraw();
+  if(g.part&&!g.ok) toast('부분 정답 — '+g.part[0]+'/'+g.part[1]+'칸');
+  else if(g.ok&&g.pat) toast('값은 맞았습니다 — '+g.pat);
+}
+function pGiveUp(){
+  const q=PP.list[PP.i];
+  pRec(q,{ok:false,pat:'모르겠음'},''); PP.shown[q.id]=1; pDraw();
+}
+function pMv(d){
+  const n=PP.i+d; if(n<0||n>=PP.list.length)return;
+  PP.i=n; window.scrollTo(0,0); pDraw();
+}
+function pRetry(id){
+  const q=PD.byId[id]; if(!q)return;
+  const P=PS(); delete P.ans[id]; save();
+  if(PP&&PP.list.some(x=>x.id===id)){ delete PP.shown[id]; PP.i=PP.list.findIndex(x=>x.id===id); pDraw(); }
+  else { PP={list:[q],i:0,title:'다시 풀기',shown:{},from:location.hash}; pDraw() }
 }
 function pCopyPrompt(id){
   const q=PD.byId[id], rec=PS().ans[id];
-  const p='정보처리산업기사 실기 문제입니다. 아래 '+q.lang+' 코드의 실행 흐름을 한 줄씩, 변수값 변화표와 함께 한국어로 설명해 주세요.\n'+
-    '제가 쓴 답: '+(rec?rec.v:'(없음)')+'\n실제 정답: '+q.a+'\n제가 왜 틀렸는지, 어떤 개념을 착각한 것인지 짚어 주세요.\n\n```\n'+q.code+'\n```';
+  const p='정보처리산업기사 실기 기출 문제입니다. 아래 '+(q.lang||'')+' 코드의 실행 흐름을 한 줄씩, 변수값 변화표와 함께 한국어로 설명해 주세요.\n'+
+    '문제: '+q.q+'\n제가 쓴 답: '+(rec?rec.v:'(없음)')+'\n실제 정답: '+q.a+'\n'+
+    '제가 왜 틀렸는지, 어떤 개념을 착각한 것인지 짚어 주세요.\n\n```\n'+(q.code||'')+'\n```';
   navigator.clipboard.writeText(p).then(()=>toast('프롬프트를 복사했습니다')).catch(()=>toast('복사에 실패했습니다'));
 }
 
-/* ── 코드 문제 브라우저 ───────────────────────────────── */
-async function vPCode(){
+/* ══ 학습노트 ══════════════════════════════════════════ */
+let PNF={cat:'',q:''};
+async function vPNote(){
   if(!await pLoad())return;
-  document.getElementById('hTitle').textContent='코드 출력 문제';
-  const A=PS().ans, done=PD.code.filter(q=>A[q.id]).length;
-  app().innerHTML=
-  '<div class="card tight"><div class="row small"><span style="flex:1">진행 <b>'+done+'</b> / '+PD.code.length+'</span>'+
-    '<span class="tiny muted">정답률 '+pStat('code').rate+'%</span></div>'+
-    '<div class="mini" style="margin-top:6px"><i style="width:'+(done/PD.code.length*100)+'%;background:var(--ac)"></i></div></div>'+
-  '<h2 class="sec">모아 풀기</h2><div class="grid2">'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=new&n=20\')">안 푼 문제 20개</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 문제 전부</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=random&n=30\')">랜덤 30문항</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=code&mode=weak&n=20\')">취약 문법 20개</button></div>'+
-  '<h2 class="sec">언어</h2><div class="frow">'+PD.idx.code.langs.map(l=>
-    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=lang&k='+encodeURIComponent(l.k)+'\')">'+l.k+' <small>'+l.n+'</small></button>').join('')+'</div>'+
-  '<h2 class="sec">출처</h2><div class="frow">'+PD.idx.code.kinds.map(l=>
-    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=kind&k='+encodeURIComponent(l.k)+'\')">'+esc(l.k)+' <small>'+l.n+'</small></button>').join('')+'</div>'+
-  '<h2 class="sec">문법 유형</h2><div class="frow">'+PD.idx.code.tags.map(l=>
-    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(l.k)+'\')">'+esc(l.k)+' <small>'+l.n+'</small></button>').join('')+'</div>'+
-  '<h2 class="sec">교재 Section별</h2><div class="frow">'+PD.idx.code.secs.filter(s=>s.k>0).map(s=>
-    '<button class="fchip" onclick="go(\'#/pplay?t=code&mode=sec&k='+s.k+'\')">S'+('00'+s.k).slice(-3)+' <small>'+s.n+'</small></button>').join('')+'</div>'+
-  '<div style="height:20px"></div>';
-}
-
-/* ── 단답형 브라우저 ──────────────────────────────────── */
-async function vPTerm(){
-  if(!await pLoad())return;
-  document.getElementById('hTitle').textContent='단답형 용어';
-  const A=PS().ans, done=PD.term.filter(q=>A[q.id]).length;
-  app().innerHTML=
-  '<div class="card tight"><div class="row small"><span style="flex:1">진행 <b>'+done+'</b> / '+PD.term.length+'</span>'+
-    '<span class="tiny muted">정답률 '+pStat('term').rate+'%</span></div>'+
-    '<div class="mini" style="margin-top:6px"><i style="width:'+(done/PD.term.length*100)+'%;background:var(--pu)"></i></div></div>'+
-  '<h2 class="sec">모아 풀기</h2><div class="grid2">'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=term&mode=new&n=25\')">안 푼 용어 25개</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=wrong\')">틀린 용어 전부</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=random&n=30\')">랜덤 30문항</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=weak&n=20\')">취약 분야 집중</button></div>'+
-  '<h2 class="sec">분야</h2><div class="frow">'+PD.idx.term.doms.map(d=>
-    '<button class="fchip" onclick="go(\'#/pplay?t=term&mode=dom&k='+encodeURIComponent(d.k)+'&n=25\')">'+esc(d.k)+' <small>'+d.n+'</small></button>').join('')+'</div>'+
-  '<h2 class="sec">용어 사전</h2>'+
-  '<input id="pQ" class="ansbox" style="font-family:inherit;min-height:0;padding:9px 12px" placeholder="용어 · 설명 검색 (2글자 이상)" oninput="pSearch()">'+
-  '<div id="pRes"></div><div style="height:20px"></div>';
-}
-function pSearch(){
-  const v=(document.getElementById('pQ').value||'').trim().toLowerCase();
-  const box=document.getElementById('pRes');
-  if(v.length<2){box.innerHTML='';return}
-  const r=PD.term.filter(t=>(t.ko+' '+t.en+' '+t.def).toLowerCase().indexOf(v)>=0).slice(0,40);
-  box.innerHTML=r.length?r.map(t=>'<div class="card tight">'+
-      '<div class="row"><b style="flex:1">'+esc(t.ko)+'</b>'+(t.en?'<span class="tiny muted">'+esc(t.en)+'</span>':'')+'</div>'+
-      '<div class="small muted" style="margin-top:4px">'+esc(t.def)+'</div></div>').join('')
-    :'<div class="tiny muted" style="margin:8px 0">결과가 없습니다.</div>';
-}
-
-/* ── 실기 오답분석 ────────────────────────────────────── */
-function pPatTip(k){
-  if(k.indexOf('off-by-one')>=0) return '반복문 조건(&lt; vs &lt;=)과 배열 인덱스 시작값을 문제마다 먼저 확인하는 습관을 들이세요.';
-  if(k.indexOf('공백')>=0)       return '값은 맞히고 있으니 printf 서식 문자열(%3d, \\n, \\t)을 집중적으로 보세요.';
-  if(k.indexOf('정수 나눗셈')>=0) return 'int / int 는 버림입니다. 형변환이 있는지 매번 확인하세요.';
-  if(k.indexOf('줄 수')>=0)      return '개행이 반복문 안에 있는지 밖에 있는지가 핵심입니다.';
-  if(k.indexOf('순서')>=0)       return '반복 방향(증가/감소)과 중첩 반복의 안팎을 구분하세요.';
-  if(k.indexOf('부호')>=0)       return '뺄셈 순서와 음수 처리를 확인하세요.';
-  if(k.indexOf('자릿수')>=0)     return '누적 위치와 / 10, % 10 연산을 확인하세요.';
-  return '추적표를 켜 두고 첫 회차 값부터 직접 대조해 보세요.';
-}
-
-/* ══════════════════════════════════════════════════════════
-   실기 학습노트 · 오답노트 · 기록 초기화
-   ══════════════════════════════════════════════════════════ */
-let PNF={tab:'code',cat:'',q:'',unread:false};      // 학습노트 필터
-let WF={by:'pat',k:'',lang:'',kind:''};            // 오답노트 필터
-
-function PSr(){ const P=PS(); if(!P.read)P.read={}; return P.read }
-function pReadTog(id,ev){ if(ev)ev.stopPropagation(); const R=PSr(); if(R[id])delete R[id]; else R[id]=1; save(); }
-
-/* ── 학습노트 허브 ────────────────────────────────────── */
-async function vPNote(a){
-  if(!await pLoad())return;
-  if(a&&a.tab) PNF.tab=a.tab;
   document.getElementById('hTitle').textContent='실기 학습노트';
-  const R=PSr();
-  const rn=PD.note.filter(n=>R[n.id]).length, rt=PD.term.filter(t=>R[t.id]).length;
+  const R=PSr(), cats=[];
+  PD.note.forEach(n=>{ if(cats.indexOf(n.cat)<0)cats.push(n.cat) });
+  const kw=PNF.q.trim().toLowerCase();
+  const hit=PD.note.filter(n=>(!PNF.cat||n.cat===PNF.cat)&&
+    (!kw||(n.title+' '+n.sum+' '+(n.tags||[]).join(' ')).toLowerCase().indexOf(kw)>=0));
+  const done=PD.note.filter(n=>R[n.id]).length;
   app().innerHTML=
-  '<div class="row" style="margin:12px 0 0;gap:6px">'+
-    '<button class="fchip '+(PNF.tab==='code'?'on':'')+'" onclick="PNF.tab=\'code\';PNF.cat=\'\';vPNote()">문법 노트 <small>'+PD.note.length+'</small></button>'+
-    '<button class="fchip '+(PNF.tab==='term'?'on':'')+'" onclick="PNF.tab=\'term\';PNF.cat=\'\';vPNote()">개념 용어 <small>'+PD.term.length+'</small></button>'+
-  '</div>'+
-  '<input id="nQ" class="ansbox" style="font-family:inherit;min-height:0;padding:9px 12px;margin-top:8px" '+
-    'placeholder="'+(PNF.tab==='code'?'문법·규칙·함정 검색':'용어·설명 검색')+'" value="'+esc(PNF.q)+'" oninput="PNF.q=this.value;pNoteList()">'+
-  '<div class="row small" style="margin:8px 0 2px">'+
-    '<span class="muted" style="flex:1">학습 완료 '+(PNF.tab==='code'?rn+' / '+PD.note.length:rt+' / '+PD.term.length)+'</span>'+
-    '<button class="fchip '+(PNF.unread?'on':'')+'" style="margin:0" onclick="PNF.unread=!PNF.unread;vPNote()">안 본 것만</button></div>'+
-  '<div id="nCats"></div><div id="nList"></div><div style="height:24px"></div>';
-  pNoteCats(); pNoteList();
-  const q=document.getElementById('nQ'); if(PNF.q){q.focus();q.setSelectionRange(PNF.q.length,PNF.q.length)}
-}
-function pNoteCats(){
-  const cats=(PNF.tab==='code'?PD.idx.note.cats:PD.idx.note.termCats);
-  document.getElementById('nCats').innerHTML='<div class="frow" style="margin-top:6px">'+
-    '<button class="fchip '+(PNF.cat?'':'on')+'" onclick="PNF.cat=\'\';vPNote()">전체</button>'+
-    cats.map(c=>'<button class="fchip '+(PNF.cat===c.k?'on':'')+'" onclick="PNF.cat='+JSON.stringify(c.k).replace(/"/g,'&quot;')+';vPNote()">'+
-      esc(c.k)+' <small>'+c.n+'</small></button>').join('')+'</div>';
-}
-function pNoteHits(){
-  const R=PSr(), q=PNF.q.trim().toLowerCase();
-  if(PNF.tab==='code'){
-    let L=PD.note.slice();
-    if(PNF.cat) L=L.filter(n=>n.cat===PNF.cat);
-    if(PNF.unread) L=L.filter(n=>!R[n.id]);
-    if(q) L=L.filter(n=>(n.title+' '+n.tag+' '+n.sum+' '+n.rules.join(' ')+' '+n.traps.map(t=>t.t+t.d).join(' ')).toLowerCase().indexOf(q)>=0);
-    return L;
-  }
-  let L=PD.term.slice();
-  if(PNF.cat) L=L.filter(t=>t.cat===PNF.cat);
-  if(PNF.unread) L=L.filter(t=>!R[t.id]);
-  if(q) L=L.filter(t=>(t.ko+' '+t.en+' '+t.def).toLowerCase().indexOf(q)>=0);
-  return L;
+  '<h2 class="sec">학습노트 <span class="tiny muted">'+done+'/'+PD.note.length+' 완료</span></h2>'+
+  '<div class="card tight"><div class="small">12회차 기출 '+PD.idx.n+'문항에서 반복되는 개념만 뽑아 정리했습니다. '+
+    '각 노트의 규칙·함정은 실제 출제된 문항과 연결되어 있습니다.</div></div>'+
+  '<input placeholder="노트 검색" value="'+esc(PNF.q)+'" oninput="PNF.q=this.value;pNoteList()" style="margin:10px 0">'+
+  '<div class="frow"><button class="fchip'+(PNF.cat?'':' on')+'" onclick="PNF.cat=\'\';vPNote()">전체 <small>'+PD.note.length+'</small></button>'+
+    cats.map(c=>'<button class="fchip'+(PNF.cat===c?' on':'')+'" onclick="PNF.cat=\''+c+'\';vPNote()">'+esc(c)+
+      ' <small>'+PD.note.filter(n=>n.cat===c).length+'</small></button>').join('')+'</div>'+
+  '<div id="pnList">'+pNoteRows(hit)+'</div>';
 }
 function pNoteList(){
-  const R=PSr(), L=pNoteHits(), box=document.getElementById('nList');
-  if(!L.length){box.innerHTML='<div class="empty">조건에 맞는 항목이 없습니다.</div>';return}
-  if(PNF.tab==='code'){
-    const g={};
-    L.forEach(n=>{(g[n.cat]=g[n.cat]||[]).push(n)});
-    box.innerHTML=Object.keys(g).map(c=>'<h2 class="sec">'+esc(c)+'</h2>'+g[c].map(n=>
-      '<button class="lrow" onclick="go(\'#/pnv?id='+n.id+'\')">'+
-      '<span class="chip'+(R[n.id]?' ok2':'')+'">'+(R[n.id]?'✓':'·')+'</span>'+
-      '<span class="g"><span class="t">'+esc(n.title)+'</span>'+
-      '<span class="s">'+esc(n.sum.slice(0,52))+'…</span></span>'+
-      '<span class="tiny muted">'+n.nq+'문항</span><span class="muted">›</span></button>').join('')).join('');
-    return;
-  }
-  const show=L.slice(0,120);
-  box.innerHTML=show.map(t=>
-    '<div class="card tight" id="tc_'+t.id+'">'+
-      '<div class="row" onclick="pTermTog(\''+t.id+'\')" style="cursor:pointer">'+
-        '<b style="flex:1">'+esc(t.ko)+'</b>'+
-        (t.en?'<span class="tiny muted" style="margin-right:6px">'+esc(t.en)+'</span>':'')+
-        '<span class="chip'+(R[t.id]?' ok2':'')+'" onclick="pReadTog(\''+t.id+'\',event);pNoteList()">'+(R[t.id]?'✓':'·')+'</span></div>'+
-      '<div class="small muted" style="margin-top:4px" id="td_'+t.id+'">'+esc(t.def.slice(0,72))+(t.def.length>72?'…':'')+'</div>'+
-    '</div>').join('')+
-    (L.length>show.length?'<div class="tiny muted" style="text-align:center;margin:10px">'+show.length+' / '+L.length+'개 표시 — 검색어로 좁혀 보세요</div>':'');
+  const kw=PNF.q.trim().toLowerCase();
+  const hit=PD.note.filter(n=>(!PNF.cat||n.cat===PNF.cat)&&
+    (!kw||(n.title+' '+n.sum+' '+(n.tags||[]).join(' ')).toLowerCase().indexOf(kw)>=0));
+  document.getElementById('pnList').innerHTML=pNoteRows(hit);
 }
-function pTermTog(id){
-  const t=PD.term.filter(x=>x.id===id)[0], d=document.getElementById('td_'+id);
-  if(d.dataset.open){ d.dataset.open=''; d.className='small muted'; d.style.marginTop='4px';
-    d.innerHTML=esc(t.def.slice(0,72))+(t.def.length>72?'…':''); return }
-  d.dataset.open='1'; d.className='small';
-  d.innerHTML='<div style="margin:6px 0 8px">'+esc(t.def)+'</div>'+
-    '<div class="tiny muted">'+esc(t.cat)+' · 출처 '+esc(t.src)+(t.more?' · '+esc(t.more):'')+'</div>'+
-    '<div class="row" style="margin-top:8px;gap:6px">'+
-      '<button class="btn sm gh" onclick="event.stopPropagation();go(\'#/pplay?t=term&mode=dom&k='+encodeURIComponent(t.dom)+'&n=20\')">이 분야 문제 풀기</button></div>';
+function pNoteRows(list){
+  if(!list.length) return '<div class="empty">검색 결과가 없습니다.</div>';
+  const R=PSr(), A=PS().ans;
+  return '<div class="card tight">'+list.map(n=>{
+    const qs=(n.qids||[]).map(id=>PD.byId[id]).filter(Boolean);
+    const wrong=qs.filter(q=>A[q.id]&&!A[q.id].ok).length;
+    return '<div class="lrow" onclick="go(\'#/pnv?id='+n.id+'\')" style="cursor:pointer">'+
+      '<div class="g"><b>'+(R[n.id]?'✔ ':'')+esc(n.title)+'</b>'+
+      '<span class="s">'+esc(n.cat)+' · 기출 '+qs.length+'문항'+(wrong?' · 오답 '+wrong+'개':'')+'</span></div>'+
+      '<span class="chip'+(R[n.id]?' ok2':'')+'">'+(R[n.id]?'완료':'→')+'</span></div>';
+  }).join('')+'</div>';
 }
 
-/* ── 문법 노트 상세 ───────────────────────────────────── */
 async function vPNv(a){
   if(!await pLoad())return;
   const n=PD.note.filter(x=>x.id===a.id)[0];
   if(!n){go('#/pnote');return}
-  const R=PSr(), i=PD.note.indexOf(n);
   document.getElementById('hTitle').textContent=n.title;
+  const R=PSr(), A=PS().ans;
+  const qs=(n.qids||[]).map(id=>PD.byId[id]).filter(Boolean);
+  const done=qs.filter(q=>A[q.id]).length, ok=qs.filter(q=>A[q.id]&&A[q.id].ok).length;
+  const i=PD.note.indexOf(n), prev=PD.note[i-1], next=PD.note[i+1];
   app().innerHTML=
-  '<div class="row" style="margin:12px 0 4px"><button class="btn sm gh" onclick="go(\'#/pnote\')">‹ 목록</button>'+
-    '<div style="flex:1"></div>'+
-    '<button class="btn sm '+(R[n.id]?'pri':'gh')+'" onclick="pReadTog(\''+n.id+'\');vPNv({id:\''+n.id+'\'})">'+
-      (R[n.id]?'✓ 학습 완료':'학습 완료 표시')+'</button></div>'+
   '<div class="card">'+
-    '<div class="qhd"><span class="chip s1">'+esc(n.cat)+'</span>'+
-      '<span class="chip">관련 '+n.nq+'문항</span><div style="flex:1"></div></div>'+
-    '<h3 style="margin:8px 0 6px;font-size:18px">'+esc(n.title)+'</h3>'+
-    '<div class="small" style="color:var(--tx2)">'+esc(n.sum)+'</div></div>'+
-  '<h2 class="sec">핵심 규칙</h2><div class="card">'+
-    n.rules.map((r,k)=>'<div class="nrule"><span class="nn">'+(k+1)+'</span><span>'+pmd(r)+'</span></div>').join('')+'</div>'+
-  '<h2 class="sec">자주 틀리는 지점</h2>'+
-    n.traps.map(t=>'<div class="ntrap"><b>'+esc(t.t)+'</b><div class="small" style="margin-top:3px">'+pmd(t.d)+'</div></div>').join('')+
-  (n.ex.length?'<h2 class="sec">검증된 예제 '+n.ex.length+'개</h2>'+
-    n.ex.map((e,k)=>'<div class="card">'+
-      '<div class="qhd"><span class="chip s1">'+e.lang+'</span>'+
-        (e['in']?'<span class="chip">입력 '+e['in'].join(', ')+'</span>':'')+
-        '<div style="flex:1"></div><span class="tiny muted">예제 '+(k+1)+'</span></div>'+
-      '<pre class="code">'+hl(e.code)+'</pre>'+
-      '<div class="tiny muted" style="margin:6px 0 2px">출력</div><div class="outbox ok">'+esc(e.a)+'</div>'+
-      (e.tr?'<button class="btn sm gh" style="margin-top:8px" onclick="pExTr(this,\''+n.id+'\','+k+')">변수 추적표 보기</button><div></div>':'')+
-    '</div>').join(''):'')+
-  '<div class="grid2" style="margin-top:14px">'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=tag&k='+encodeURIComponent(n.tag)+'&n=15\')">이 문법 문제 15개 풀기</button>'+
-    '<button class="btn" onclick="go(\'#/pwrong?by=tag&k='+encodeURIComponent(n.tag)+'\')">이 문법 오답 보기</button></div>'+
-  '<div class="row" style="margin-top:14px">'+
-    (i>0?'<button class="btn sm gh" onclick="go(\'#/pnv?id='+PD.note[i-1].id+'\')">‹ '+esc(PD.note[i-1].title)+'</button>':'')+
-    '<div style="flex:1"></div>'+
-    (i<PD.note.length-1?'<button class="btn sm gh" onclick="go(\'#/pnv?id='+PD.note[i+1].id+'\')">'+esc(PD.note[i+1].title)+' ›</button>':'')+
-  '</div><div style="height:24px"></div>';
-}
-function pExTr(btn,nid,k){
-  const e=PD.note.filter(x=>x.id===nid)[0].ex[k], box=btn.nextElementSibling;
-  if(box.innerHTML){box.innerHTML='';btn.textContent='변수 추적표 보기';return}
-  box.innerHTML=pTrace(e.tr); btn.textContent='추적표 접기';
-}
-/* 백틱 코드 표기만 간단 변환 */
-function pmd(s){ return esc(s).replace(/`([^`]+)`/g,'<code class="ic">$1</code>') }
+    '<div class="qhd"><span class="chip">'+esc(n.cat)+'</span>'+
+      (n.tags||[]).slice(0,3).map(t=>'<span class="chip" style="color:var(--pu);border-color:#463a7a">'+esc(t)+'</span>').join('')+
+      '<div style="flex:1"></div>'+
+      '<button class="btn sm '+(R[n.id]?'':'gh')+'" onclick="pReadTog(\''+n.id+'\');vPNv({id:\''+n.id+'\'})">'+(R[n.id]?'✔ 완료':'완료 표시')+'</button>'+
+    '</div>'+
+    '<h2 style="margin:10px 0 6px;font-size:19px">'+esc(n.title)+'</h2>'+
+    '<div class="small" style="line-height:1.75">'+nl2br(n.sum)+'</div>'+
+  '</div>'+
 
-/* ── 오답노트 ─────────────────────────────────────────── */
-function pWrongList(){
-  const A=PS().ans;
-  let L=Object.keys(A).filter(id=>!A[id].ok&&PD.byId[id]).map(id=>({id:id,a:A[id],q:PD.byId[id]}));
-  if(WF.lang) L=L.filter(x=>(x.q.lang||x.q.cat)===WF.lang);
-  if(WF.kind) L=L.filter(x=>x.a.kind===WF.kind);
-  if(WF.k){
-    if(WF.by==='pat')  L=L.filter(x=>(x.a.pat||'분류 없음')===WF.k);
-    if(WF.by==='tag')  L=L.filter(x=>(x.a.tags||[]).indexOf(WF.k)>=0);
-    if(WF.by==='lang') L=L.filter(x=>(x.q.lang||x.q.cat)===WF.k);
-  }
-  L.sort((x,y)=>y.a.t-x.a.t);
-  return L;
+  '<h2 class="sec">핵심 규칙</h2><div class="card">'+
+    n.rules.map((r,k)=>'<div class="nrule"><div class="nn">'+(k+1)+'</div><div>'+pMd(r)+'</div></div>').join('')+
+  '</div>'+
+
+  (n.traps&&n.traps.length?'<h2 class="sec">자주 틀리는 지점</h2>'+
+    n.traps.map(t=>'<div class="ntrap"><b>'+esc(t.t)+'</b><div style="margin-top:4px;font-size:14px;line-height:1.72">'+pMd(t.d)+'</div></div>').join('')
+   :'')+
+
+  (qs.length?'<h2 class="sec">이 개념이 나온 기출 <span class="tiny muted">'+done+'/'+qs.length+' 풀이 · 정답 '+ok+'</span></h2>'+
+    '<div class="card tight">'+qs.map(q=>{
+      const rec=A[q.id];
+      return '<div class="lrow" onclick="go(\'#/pplay?id='+q.id+'\')" style="cursor:pointer">'+
+        '<div class="g"><b>'+esc(examTitle(q.exam))+' '+q.no+'번</b>'+
+        '<span class="s">'+esc((q.q||'').replace(/\n/g,' ').slice(0,54))+'</span></div>'+
+        (rec?'<span class="chip '+(rec.ok?'ok2':'')+'" style="'+(rec.ok?'':'color:var(--no);border-color:#5c2b2b')+'">'+(rec.ok?'○':'✘')+'</span>'
+            :'<span class="chip">→</span>')+'</div>';
+    }).join('')+'</div>'+
+    '<div class="row" style="margin-top:10px">'+
+      '<button class="btn" onclick="go(\'#/pplay?note='+n.id+'\')">이 기출 '+qs.length+'문항 풀기</button></div>'
+   :'')+
+
+  '<div class="row" style="margin-top:16px;gap:7px">'+
+    (prev?'<button class="btn sm gh" onclick="go(\'#/pnv?id='+prev.id+'\')">← '+esc(prev.title)+'</button>':'')+
+    '<div style="flex:1"></div>'+
+    (next?'<button class="btn sm gh" onclick="go(\'#/pnv?id='+next.id+'\')">'+esc(next.title)+' →</button>':'')+
+  '</div>';
 }
-async function vPWrong(a){
+/* ══ 오답노트 ══════════════════════════════════════════ */
+let WF={by:'tag'};
+async function vPWrong(){
   if(!await pLoad())return;
-  if(a&&a.by){WF.by=a.by; WF.k=a.k?decodeURIComponent(a.k):''}
   document.getElementById('hTitle').textContent='실기 오답노트';
-  const all=pStat(), pats=pPatStats(), tags=pTagStats().filter(t=>t.n>=2);
-  if(!all.n){app().innerHTML='<div class="empty">아직 푼 문제가 없습니다.<br><br>'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=random&n=15\')">코드 15문항 풀어보기</button></div>';return}
-  const L=pWrongList();
-  const groups=(WF.by==='pat')?pats.map(p=>({k:p.k,n:p.v}))
-    :(WF.by==='tag')?tags.filter(t=>t.n-t.ok>0).map(t=>({k:t.t,n:t.n-t.ok}))
-    :(function(){const m={};Object.keys(PS().ans).forEach(id=>{const r=PS().ans[id],q=PD.byId[id];
-        if(r&&!r.ok&&q){const k=q.lang||q.cat;m[k]=(m[k]||0)+1}});
-      return Object.keys(m).map(k=>({k:k,n:m[k]})).sort((x,y)=>y.n-x.n)})();
-  app().innerHTML=
-  '<div class="grid3" style="margin-top:12px">'+
-    '<div class="kpi"><div class="v">'+all.n+'</div><div class="k">푼 문제</div></div>'+
-    '<div class="kpi"><div class="v" style="color:'+(all.rate>=60?'var(--ok)':'var(--no)')+'">'+all.rate+'%</div><div class="k">정답률</div></div>'+
-    '<div class="kpi"><div class="v" style="color:var(--no)">'+(all.n-all.ok)+'</div><div class="k">오답</div></div></div>'+
-  (pats.length?'<div class="card tight"><div class="tiny muted" style="margin-bottom:6px">오답 패턴 분포</div>'+
-    pats.map(p=>'<div style="margin:6px 0"><div class="row tiny"><span style="flex:1">'+esc(p.k)+'</span>'+
-    '<span class="muted">'+p.v+'회</span></div>'+
-    '<div class="mini" style="margin-top:3px"><i style="width:'+(p.v/pats[0].v*100)+'%;background:var(--wn)"></i></div></div>').join('')+
-    '<div class="tiny muted" style="margin-top:8px">가장 잦은 패턴은 <b>'+esc(pats[0].k)+'</b>입니다. '+pPatTip(pats[0].k)+'</div></div>':'')+
-  '<h2 class="sec">분류 기준</h2><div class="frow">'+
-    [['pat','오답 패턴별'],['tag','문법별'],['lang','언어·분야별'],['recent','최근순']].map(b=>
-    '<button class="fchip '+(WF.by===b[0]?'on':'')+'" onclick="WF.by=\''+b[0]+'\';WF.k=\'\';vPWrong()">'+b[1]+'</button>').join('')+'</div>'+
-  (WF.by!=='recent'&&groups.length?'<div class="frow" style="margin-top:4px">'+
-    '<button class="fchip '+(WF.k?'':'on')+'" onclick="WF.k=\'\';vPWrong()">전체 <small>'+(all.n-all.ok)+'</small></button>'+
-    groups.map(g=>'<button class="fchip '+(WF.k===g.k?'on':'')+'" onclick="WF.k='+JSON.stringify(g.k).replace(/"/g,'&quot;')+';vPWrong()">'+
-      esc(g.k)+' <small>'+g.n+'</small></button>').join('')+'</div>':'')+
-  '<div class="row" style="margin:14px 0 4px"><h2 class="sec" style="margin:0;flex:1">오답 '+L.length+'개</h2>'+
-    '<button class="btn sm gh" onclick="pWrongMd()">마크다운 복사</button></div>'+
-  (L.length?L.map(x=>pWrongCard(x)).join(''):'<div class="empty">이 분류에는 오답이 없습니다.</div>')+
-  (L.length?'<div class="grid2" style="margin-top:14px">'+
-    '<button class="btn pri" onclick="go(\'#/pplay?t=code&mode=wrong\')">틀린 코드 다시 풀기</button>'+
-    '<button class="btn" onclick="go(\'#/pplay?t=term&mode=wrong\')">틀린 용어 다시 풀기</button></div>':'')+
-  '<div style="height:24px"></div>';
-}
-function pWrongCard(x){
-  const q=x.q, a=x.a, code=!!q.code;
-  const lines=code?q.code.split('\n'):[];
-  const short=code&&lines.length>9;
-  const note=code?PD.note.filter(n=>(q.tags||[]).indexOf(n.tag)>=0)[0]:null;
-  return '<div class="card">'+
-    '<div class="qhd"><span class="chip s1">'+esc(q.lang||q.cat)+'</span>'+
-      '<span class="chip no">'+esc(a.pat||'오답')+'</span><div style="flex:1"></div>'+
-      '<span class="tiny muted">'+pAgo(a.t)+'</span></div>'+
-    (code
-      ?'<pre class="code" id="wc_'+x.id+'">'+hl(short?lines.slice(0,9).join('\n'):q.code)+'</pre>'+
-       (short?'<button class="btn sm gh" onclick="pWMore(this,\''+x.id+'\')">코드 전체 보기 (+'+(lines.length-9)+'줄)</button>':'')
-      :'<div class="small" style="margin:8px 0">'+esc(q.q)+'</div>')+
-    '<div class="grid2" style="margin-top:8px">'+
-      '<div><div class="tiny muted" style="margin-bottom:2px">내 답</div><div class="outbox no">'+(esc(a.v)||'(없음)')+'</div></div>'+
-      '<div><div class="tiny muted" style="margin-bottom:2px">정답</div><div class="outbox ok">'+esc(code?q.a:(q.ko+(q.en?' ('+q.en+')':'')))+'</div></div></div>'+
-    (code&&q.tr?'<button class="btn sm gh" style="margin-top:8px" onclick="pWTr(this,\''+x.id+'\')">변수 추적표 보기</button><div></div>':'')+
-    '<div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">'+
-      (note?'<button class="btn sm gh" onclick="go(\'#/pnv?id='+note.id+'\')">📘 '+esc(note.title)+'</button>':'')+
-      '<button class="btn sm gh" onclick="pWRetry(\''+x.id+'\')">다시 풀기</button>'+
-      (code?'<button class="btn sm gh" onclick="pCopyPrompt(\''+x.id+'\')">AI 해설 복사</button>':'')+
-    '</div></div>';
-}
-function pWMore(btn,id){
-  const q=PD.byId[id];
-  document.getElementById('wc_'+id).innerHTML=hl(q.code); btn.remove();
-}
-function pWTr(btn,id){
-  const box=btn.nextElementSibling;
-  if(box.innerHTML){box.innerHTML='';btn.textContent='변수 추적표 보기';return}
-  box.innerHTML=pTrace(PD.byId[id].tr); btn.textContent='추적표 접기';
-}
-function pWRetry(id){
-  const q=PD.byId[id]; delete PS().ans[id]; save();
-  PP={list:[q],i:0,title:'다시 풀기',t:q.code?'code':'term',shown:{}};
-  location.hash='#/pplay?t='+(q.code?'code':'term')+'&mode=one';
-  setTimeout(pDraw,0);
-}
-function pAgo(t){
-  const d=(Date.now()-t)/1000;
-  if(d<60)return '방금'; if(d<3600)return Math.floor(d/60)+'분 전';
-  if(d<86400)return Math.floor(d/3600)+'시간 전'; return Math.floor(d/86400)+'일 전';
-}
-function pWrongMd(){
-  const L=pWrongList();
-  if(!L.length){toast('내보낼 오답이 없습니다');return}
-  let mdOut='# 정보처리산업기사 실기 오답노트\n\n'+
-    new Date().toLocaleDateString('ko-KR')+' · 오답 '+L.length+'개\n\n';
-  const pats=pPatStats();
-  if(pats.length){ mdOut+='## 오답 패턴\n\n'+pats.map(p=>'- '+p.k+' — '+p.v+'회').join('\n')+'\n\n'; }
-  mdOut+='---\n\n';
-  L.forEach((x,i)=>{
-    const q=x.q,a=x.a;
-    mdOut+='## '+(i+1)+'. '+(q.lang||q.cat)+' — '+(a.pat||'오답')+'\n\n';
-    if(q.code){
-      mdOut+='```\n'+q.code+'\n```\n\n';
-      if(q['in']) mdOut+='입력값: '+q['in'].join(', ')+'\n\n';
-      mdOut+='- 내 답: `'+(a.v||'(없음)').replace(/\n/g,' ⏎ ')+'`\n';
-      mdOut+='- 정답: `'+q.a.replace(/\n/g,' ⏎ ')+'`\n';
-      if((q.tags||[]).length) mdOut+='- 문법: '+q.tags.join(', ')+'\n';
-      if(q.tr){
-        mdOut+='\n| # | '+q.tr.cols.join(' | ')+' |\n|'+'---|'.repeat(q.tr.cols.length+1)+'\n';
-        q.tr.rows.forEach((r,k)=>{mdOut+='| '+(k+1)+' | '+r.join(' | ')+' |\n'});
-      }
-    }else{
-      mdOut+='> '+q.q+'\n\n- 내 답: '+(a.v||'(없음)')+'\n- 정답: **'+q.ko+'**'+(q.en?' ('+q.en+')':'')+'\n- 분야: '+q.cat+'\n';
-    }
-    mdOut+='\n';
+  const A=PS().ans;
+  const wrong=PD.exam.filter(q=>A[q.id]&&!A[q.id].ok);
+  if(!wrong.length){
+    app().innerHTML='<div class="empty">아직 틀린 문제가 없습니다.<br><span class="tiny">문제를 풀면 여기에 모입니다.</span></div>';
+    return;
+  }
+  const groups={};
+  wrong.forEach(q=>{
+    const keys=WF.by==='tag'?((q.tags&&q.tags.length)?q.tags:['기타'])
+              :WF.by==='exam'?[examTitle(q.exam)]
+              :[A[q.id].pat||'기타'];
+    keys.forEach(k=>(groups[k]=groups[k]||[]).push(q));
   });
-  navigator.clipboard.writeText(mdOut).then(()=>toast('오답노트 '+L.length+'개를 마크다운으로 복사했습니다'))
+  const ks=Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length);
+  const tabs=[['tag','개념별'],['exam','회차별'],['pat','실수 유형별']];
+  app().innerHTML=
+  '<h2 class="sec">오답노트 <span class="tiny muted">'+wrong.length+'문항</span></h2>'+
+  '<div class="row" style="gap:7px;margin-bottom:8px">'+
+    '<button class="btn sm" onclick="go(\'#/pplay?mode=wrong\')">전부 다시 풀기</button>'+
+    '<button class="btn sm gh" onclick="pCopyWrong()">마크다운 복사</button>'+
+  '</div>'+
+  '<div class="frow">'+tabs.map(t=>'<button class="fchip'+(WF.by===t[0]?' on':'')+'" onclick="WF.by=\''+t[0]+'\';vPWrong()">'+t[1]+'</button>').join('')+'</div>'+
+  ks.map(k=>'<div class="card tight"><div class="row small" style="margin-bottom:4px"><b>'+esc(k)+'</b>'+
+    '<div style="flex:1"></div><span class="chip" style="color:var(--no);border-color:#5c2b2b">'+groups[k].length+'</span></div>'+
+    groups[k].map(q=>'<div class="lrow" onclick="go(\'#/pplay?id='+q.id+'\')" style="cursor:pointer">'+
+      '<div class="g"><b>'+esc(examTitle(q.exam))+' '+q.no+'번</b>'+
+      '<span class="s">내 답: '+esc(A[q.id].v||'(없음)')+' → 정답: '+esc(q.a.replace(/\n/g,' ').slice(0,40))+'</span></div>'+
+      '<span class="chip">'+TLABEL[q.type]+'</span></div>').join('')+
+    '</div>').join('');
+}
+function pCopyWrong(){
+  const A=PS().ans;
+  const L=PD.exam.filter(q=>A[q.id]&&!A[q.id].ok);
+  if(!L.length){toast('틀린 문제가 없습니다');return}
+  const md='# 정보처리산업기사 실기 오답노트 ('+L.length+'문항)\n\n'+L.map(q=>
+    '## '+examTitle(q.exam)+' '+q.no+'번 — '+TLABEL[q.type]+'\n\n'+
+    q.q+'\n\n'+(q.code?'```\n'+q.code+'\n```\n\n':'')+
+    '- 내 답: '+(A[q.id].v||'(없음)')+'\n- 정답: '+q.a+'\n- 해설: '+(q.why||'')+'\n').join('\n');
+  navigator.clipboard.writeText(md).then(()=>toast('오답노트 '+L.length+'개를 복사했습니다'))
     .catch(()=>toast('복사에 실패했습니다'));
+}
+
+/* ── 인라인 마크다운 (백틱 코드 · **굵게**) ─────────────── */
+function pMd(t){
+  return esc(t).replace(/`([^`]+)`/g,'<code class="ic">$1</code>')
+               .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
 }
 
 /* ── 실기 기록 초기화 ─────────────────────────────────── */
 function pReset(scope){
   const P=PS(), A=P.ans;
-  const ids=Object.keys(A).filter(id=>scope==='all'||A[id].kind===scope);
+  const ids=Object.keys(A).filter(id=>scope==='all'||A[id].type===scope);
   if(!ids.length){toast('지울 기록이 없습니다');return}
-  const nm={all:'실기 기록 전체',code:'코드 출력 문제 기록',term:'단답형 문제 기록'}[scope];
-  if(!confirm(nm+' '+ids.length+'건을 지웁니다.\n필기 기록과 학습노트 완료 표시는 그대로 남습니다.\n계속할까요?')) return;
+  if(!confirm('실기 기록 '+ids.length+'건을 지웁니다.\n필기 기록과 학습노트 완료 표시는 그대로 남습니다.\n계속할까요?')) return;
   ids.forEach(id=>delete A[id]);
-  if(scope==='all') P.tag={};
-  else{ P.tag={}; Object.keys(A).forEach(id=>(A[id].tags||[]).forEach(t=>{
-        P.tag[t]=(P.tag[t]||0)+(A[id].ok?-0.5:1); if(P.tag[t]<0)P.tag[t]=0})); }
-  save(); toast(nm+' '+ids.length+'건을 지웠습니다'); vPHome();
+  P.tag={};
+  Object.keys(A).forEach(id=>(A[id].tags||[]).forEach(t=>{
+    P.tag[t]=(P.tag[t]||0)+(A[id].ok?-0.5:1); if(P.tag[t]<0)P.tag[t]=0}));
+  save(); toast('실기 기록 '+ids.length+'건을 지웠습니다'); vPHome();
 }
 function pResetRead(){
   const P=PS(), n=Object.keys(PSr()).length;
@@ -2277,7 +2136,7 @@ function pResetRead(){
 }
 
 /* ── 모드 전환 · 내비게이션 ───────────────────────────── */
-const PRAC_ROUTES=['phome','pcode','pplay','pterm','pana','pnote','pnv','pwrong'];
+const PRAC_ROUTES=['phome','pexam','ptype','pplay','pnote','pnv','pwrong'];
 function isPrac(p){ return PRAC_ROUTES.indexOf(p)>=0 }
 function setMode(m){
   try{localStorage.setItem('jbsg_mode',m)}catch(e){}
@@ -2289,13 +2148,13 @@ function curMode(){
 }
 const NAV={
   written:[['home','◎','홈'],['exams','✎','기출문제'],['summary','▤','핵심요약'],['analysis','◈','오답분석'],['notes','✦','학습노트']],
-  prac:   [['phome','◎','홈'],['pcode','⌨','코드출력'],['pterm','▤','단답형'],['pnote','✦','학습노트'],['pwrong','◈','오답노트']]
+  prac:   [['phome','◎','홈'],['pexam','✎','회차별'],['ptype','⌨','유형별'],['pnote','✦','학습노트'],['pwrong','◈','오답노트']]
 };
 function drawNav(p){
   const m=curMode();
   document.getElementById('navIn').innerHTML=NAV[m].map(x=>
     '<a href="#/'+x[0]+'" data-tab="'+x[0]+'"><i>'+x[1]+'</i>'+x[2]+'</a>').join('');
-  const alias={pplay:'pcode',pnv:'pnote',pana:'pwrong'};
+  const alias={pplay:'pexam',pnv:'pnote'};
   const t=alias[p]||p;
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',
     a.dataset.tab===t||(m==='written'&&((p==='play'&&a.dataset.tab==='exams')
