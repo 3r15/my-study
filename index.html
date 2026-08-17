@@ -181,7 +181,7 @@ code.ic{background:#0b1428;border:1px solid var(--line);border-radius:5px;paddin
    1. 저장소 (localStorage) — 학습 기록 · 취약점 · 메모
    ══════════════════════════════════════════════════════════ */
 const KEY='jbsg_v2';
-const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},sumPick:[],aiSummary:[],prac:{ans:{},notes:{},tag:{},read:{},mode:'input'},ver:2};
+const DEF={answers:{},notes:{},secNotes:{},secRead:{},weak:{},gen:[],genAns:{},unknown:[],studyNotes:{},gaps:{},drillBank:[],drillMastered:{},drillWrong:{},sumPick:[],aiSummary:[],mock:null,prac:{ans:{},notes:{},tag:{},read:{},mode:'input'},ver:2};
 let S=load();
 function load(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return Object.assign({},DEF)}}
 let _sv;function save(){clearTimeout(_sv);_sv=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(S)),120)}
@@ -190,7 +190,7 @@ function toast(m){const t=document.getElementById('toast');t.textContent=m;t.cla
 /* ══════════════════════════════════════════════════════════
    2. 데이터 로딩
    ══════════════════════════════════════════════════════════ */
-const D={index:null,exams:{},summary:null,sec:{},gloss:null,qById:{},newc:null};
+const D={index:null,exams:{},summary:null,sec:{},gloss:null,qById:{},newc:null,mock:null};
 const j=u=>fetch(u).then(r=>{if(!r.ok)throw new Error(u+' → HTTP '+r.status);return r.json()});
 async function boot(){
   try{
@@ -326,6 +326,7 @@ function route(){
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
     analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings,
+    mock:vMock,mockplay:vMockPlay,
     phome:vPHome,pexam:vPExam,ptype:vPType,pplay:vPPlay,
     pwrong:vPWrong,pnote:vPNote,pnv:vPNv,pai:vPAI,paiplay:vPAIPlay}[p]||vHome)(a);
 }
@@ -350,6 +351,8 @@ function vHome(){
     <button class="btn" onclick="go('#/play?mode=weak&n=20')">취약 개념 집중</button>
     <button class="btn" onclick="go('#/gen')">문제 자동 생성</button>
   </div>
+  <div style="margin-top:8px"><button class="btn" style="width:100%" onclick="go('#/mock')">
+    직접 제작 모의고사 60문항${S.mock?' — 이어풀기':''}</button></div>
   <h2 class="sec">최근 회차</h2>
   ${D.index.exams.slice(0,4).map(e=>examRow(e)).join('')}
   <div style="text-align:center;margin:8px 0"><button class="btn gh sm" onclick="go('#/exams')">전체 12회차 보기 →</button></div>
@@ -402,7 +405,16 @@ function clearAllNotes(){
 function vExams(){
   const subs=[1,2,3].map(n=>`<button class="btn" onclick="go('#/play?mode=subject&sub=${n}&n=30')">${n}과목 30문항</button>`).join('');
   const units=[...new Set(D.index.units.map(u=>u.name))];
+  const M=S.mock, mst=M?mkStat():null;
   app().innerHTML=`
+  <h2 class="sec">직접 제작 모의고사</h2>
+  <div class="card tight"><div class="row">
+    <div style="flex:1"><b>60문항 모의고사</b>
+      <div class="tiny muted" style="margin-top:3px">빈출 기출 + 2024~2025 신출 유형 + 내 취약 개념을 겨냥해 직접 제작한 문제를 섞습니다</div>
+      ${M?`<div class="bar" style="margin-top:7px"><i style="width:${Math.round(mst.n/mst.tot*100)}%"></i></div>
+        <div class="tiny muted" style="margin-top:4px">진행 중 · ${mst.n}/${mst.tot} 풀이</div>`:''}</div>
+    <button class="btn sm" style="margin-left:10px" onclick="go('#/mock')">${M?'이어풀기':'만들기'}</button>
+  </div></div>
   <div class="row" style="align-items:baseline"><h2 class="sec" style="flex:1">회차별 (2022~2025 · 총 720문항)</h2>
     ${Object.keys(S.answers).length?`<button class="btn gh sm" onclick="redoAllExams()">↺ 전체 다시 풀기</button>`:''}</div>
   ${D.index.exams.map(examRow).join('')}
@@ -1627,6 +1639,243 @@ function impData(){
 }
 
 /* ══════════════════════════════════════════════════════════
+   13. 직접 제작 모의고사 (60문항)
+   세 갈래를 섞어 실제 시험과 같은 3과목 × 20문항으로 조립한다.
+     A 자주 나오는 유형  — 12회차에서 반복 출제된 개념의 기출을 재사용
+     B 2024~2025 신출 유형 — 2024년 이후에만 등장한 개념의 기출을 재사용
+     C 직접 제작          — data/mock-bank.json 66문항 중 내 취약 개념 우선
+   조립한 세트는 S.mock 에 남아 새로 고쳐도 이어서 풀 수 있다.
+   ══════════════════════════════════════════════════════════ */
+const MSRC={A:{k:'빈출 기출',c:'var(--ac)'},B:{k:'신출 유형',c:'var(--wn)'},C:{k:'직접 제작',c:'var(--pu)'}};
+async function needMock(){ if(!D.mock) D.mock=await j('data/mock-bank.json'); return D.mock }
+function MS(){ if(!S.mock)S.mock=null; return S.mock }
+
+/* 개념별 출제 빈도 / 2024년 이후에만 나온 개념 */
+function mkFreq(all){
+  const f={}; all.forEach(q=>(q.refs||[]).slice(0,2).forEach(r=>f[r]=(f[r]||0)+1)); return f;
+}
+function mkNewSecs(all){
+  const old=new Set();
+  all.forEach(q=>{ if(+q.exam.slice(0,4)<=2023)(q.refs||[]).slice(0,2).forEach(r=>old.add(r)) });
+  const nw=new Set();
+  all.forEach(q=>{ if(+q.exam.slice(0,4)>=2024)(q.refs||[]).slice(0,2).forEach(r=>{if(!old.has(r))nw.add(r)}) });
+  return nw;
+}
+// 아직 안 푼 것 → 틀린 것 → 맞힌 것 순으로 (같은 문제를 또 보는 일을 줄인다)
+const mkFresh=q=>{ const a=S.answers[q.qid]; return a?(a.ok?2:1):0 };
+
+async function buildMock(){
+  app().innerHTML='<div class="empty">60문항을 조립하는 중…</div>';
+  const all=await allQuestions(); await needMock();
+  const freq=mkFreq(all), newSecs=mkNewSecs(all);
+  const hot=new Set(Object.keys(freq).map(Number).sort((a,b)=>freq[b]-freq[a]).slice(0,45));
+  const bank=D.mock.questions;
+  const used=new Set(), items=[];
+
+  for(const sub of [1,2,3]){
+    const room=[];
+    // B) 2024~2025 신출 유형 — 과목당 최대 4문항
+    const bPool=shuffle(all.filter(q=>q.subjectNo===sub&&!used.has(q.qid)&&
+                        (q.refs||[]).slice(0,2).some(r=>newSecs.has(r))))
+                .sort((a,b)=>mkFresh(a)-mkFresh(b));
+    bPool.slice(0,4).forEach(q=>{ used.add(q.qid); room.push({src:'B',qid:q.qid,sec:(q.refs||[0])[0]}) });
+    // C) 직접 제작 — 과목당 8문항, 취약 점수 높은 개념 먼저
+    const cPool=shuffle(bank.filter(x=>x.subjectNo===sub))
+      .sort((a,b)=>((S.weak[b.sec]||0)-(S.weak[a.sec]||0))||((freq[b.sec]||0)-(freq[a.sec]||0)));
+    cPool.slice(0,8).forEach(x=>room.push({src:'C',id:x.id,sec:x.sec}));
+    // A) 자주 나오는 유형 — 남은 자리를 채운다
+    const need=20-room.length;
+    const aPool=shuffle(all.filter(q=>q.subjectNo===sub&&!used.has(q.qid)&&
+                        (q.refs||[]).slice(0,2).some(r=>hot.has(r))))
+                .sort((a,b)=>mkFresh(a)-mkFresh(b));
+    let pool=aPool;
+    if(pool.length<need)  // 빈출 개념만으로 부족하면 같은 과목 전체에서 보충
+      pool=pool.concat(shuffle(all.filter(q=>q.subjectNo===sub&&!used.has(q.qid)&&aPool.indexOf(q)<0))
+                       .sort((a,b)=>mkFresh(a)-mkFresh(b)));
+    pool.slice(0,need).forEach(q=>{ used.add(q.qid); room.push({src:'A',qid:q.qid,sec:(q.refs||[0])[0]}) });
+    items.push(...shuffle(room));
+  }
+  S.mock={t:Date.now(),items:items,ans:{},i:0};
+  save(); go('#/mockplay');
+}
+
+/* 문항 하나를 실제 데이터로 풀어낸다 */
+function mkItem(it){
+  if(it.src==='C'){
+    const x=(D.mock&&D.mock.questions||[]).filter(q=>q.id===it.id)[0];
+    if(!x)return null;
+    return {q:x.q,code:x.code||null,options:x.options,answer:x.answer,why:x.why,
+            notes:x.notes||[],neg:x.neg,sec:x.sec,subjectNo:x.subjectNo,src:'C',label:x.secTitle};
+  }
+  const q=D.qById[it.qid]; if(!q)return null;
+  return {q:null,exam:q,options:q.options.map(o=>o.text),answer:q.answer,why:null,
+          notes:[],neg:0,sec:it.sec,subjectNo:q.subjectNo,src:it.src,label:secTitle(it.sec)};
+}
+const mkStat=()=>{
+  const M=MS(); if(!M)return {n:0,ok:0,tot:0};
+  const e=Object.entries(M.ans);
+  return {n:e.length,tot:M.items.length,
+          ok:e.filter(([i,k])=>{const it=mkItem(M.items[i]);return it&&+k===it.answer}).length};
+};
+
+/* ── 구성 화면 ─────────────────────────────────────────── */
+async function vMock(){
+  const M=MS(), st=mkStat();
+  const w=weakList(2).slice(0,6);
+  app().innerHTML=
+  '<h2 class="sec">직접 제작 모의고사</h2>'+
+  '<div class="card small">실제 시험과 같은 <b>3과목 × 20문항 = 60문항</b>으로 만듭니다. 세 갈래를 섞습니다.'+
+    '<div style="margin-top:9px">'+
+    '<div class="nrule"><div class="nn" style="color:var(--ac)">A</div><div><b>자주 나오는 유형</b> — 12회차에서 반복 출제된 개념의 기출을 재사용합니다.</div></div>'+
+    '<div class="nrule"><div class="nn" style="color:var(--wn)">B</div><div><b>2024~2025 신출 유형</b> — 2024년 이후에만 등장한 개념의 기출을 재사용합니다. 과목당 최대 4문항.</div></div>'+
+    '<div class="nrule"><div class="nn" style="color:var(--pu)">C</div><div><b>직접 제작</b> — 요약집과 출제 경향을 근거로 새로 쓴 66문항 중, <b>내 취약 개념</b>부터 과목당 8문항을 뽑습니다.</div></div>'+
+    '</div>'+
+    '<div class="tiny muted" style="margin-top:8px">같은 기출이 A와 B에 겹치지 않게 하고, 아직 안 푼 문항을 먼저 넣습니다.</div>'+
+  '</div>'+
+  (w.length?'<h2 class="sec">C가 겨냥할 취약 개념</h2><div class="card tight">'+
+    w.map(x=>'<div class="lrow"><div class="g"><b>'+esc(x.sec.title)+'</b>'+
+      '<span class="s">'+x.sec.subjectNo+'과목 / '+esc(x.sec.unit)+'</span></div>'+
+      '<span class="chip" style="color:var(--no);border-color:#5c2b2b">'+x.v+'점</span></div>').join('')+'</div>'
+   :'<div class="card tight small" style="color:var(--wn)">아직 취약 개념 기록이 없습니다. '+
+    '지금 만들면 <b>출제 빈도가 높은 개념</b> 위주로 뽑고, 기출을 풀어 오답이 쌓이면 그 개념을 우선 겨냥합니다.</div>')+
+  (M?'<h2 class="sec">진행 중인 모의고사</h2><div class="card tight"><div class="row">'+
+      '<div style="flex:1"><b>'+new Date(M.t).toLocaleString('ko-KR')+' 생성</b>'+
+      '<div class="bar" style="margin-top:7px"><i style="width:'+Math.round(st.n/st.tot*100)+'%"></i></div>'+
+      '<div class="tiny muted" style="margin-top:4px">'+st.n+'/'+st.tot+' 풀이 · 정답 '+st.ok+'개</div></div>'+
+      '<button class="btn sm" style="margin-left:10px" onclick="go(\'#/mockplay\')">이어풀기</button>'+
+    '</div></div>'+
+    (st.n>=st.tot?'<div class="row" style="margin-top:8px"><button class="btn" onclick="mkResult()">결과 보기</button></div>':'')
+   :'')+
+  '<button class="btn pri" style="width:100%;margin-top:14px;padding:13px" onclick="'+
+    (M?'if(confirm(\'진행 중인 모의고사를 버리고 새로 만들까요?\'))buildMock()':'buildMock()')+'">'+
+    (M?'새로 만들기':'60문항 만들기')+'</button>'+
+  '<div style="height:24px"></div>';
+}
+
+/* ── 풀이 ──────────────────────────────────────────────── */
+async function vMockPlay(){
+  const M=MS(); if(!M){go('#/mock');return}
+  if(!D.mock||!D.exams[M.items.filter(x=>x.qid)[0]?(M.items.filter(x=>x.qid)[0].qid.slice(0,6)):'2025-3']){
+    app().innerHTML='<div class="empty">불러오는 중…</div>';
+    await allQuestions(); await needMock();
+  }
+  drawMock();
+}
+function drawMock(){
+  const M=MS(), it=mkItem(M.items[M.i]), picked=M.ans[M.i];
+  if(!it){ M.i++; if(M.i<M.items.length)return drawMock(); return mkResult() }
+  const st=mkStat(), q=it.exam;
+  document.getElementById('hTitle').textContent='모의고사 '+(M.i+1)+'/'+M.items.length;
+  app().innerHTML=
+  '<div class="row" style="margin:12px 0 4px">'+
+    '<span class="tiny muted">'+(M.i+1)+' / '+M.items.length+'</span>'+
+    '<div class="bar" style="flex:1"><i style="width:'+((M.i+1)/M.items.length*100)+'%"></i></div>'+
+    '<button class="btn sm gh" onclick="go(\'#/mock\')">나가기</button>'+
+  '</div>'+
+  '<div class="card">'+
+    '<div class="qhd">'+subjChip(it.subjectNo)+
+      '<span class="chip" style="color:'+MSRC[it.src].c+';border-color:var(--line)">'+MSRC[it.src].k+'</span>'+
+      (q?'<span class="chip">'+esc(q.exam)+' '+q.no+'번</span>':'')+
+      '<span class="chip">'+esc(it.label||'')+'</span></div>'+
+    '<div class="stem">'+(q?stemHtml(q):'<p style="white-space:pre-wrap">'+esc(it.q)+'</p>')+'</div>'+
+    (it.code?'<pre class="code">'+hl(it.code)+'</pre>':'')+
+    '<div class="opts">'+it.options.map((t,k)=>{
+      let c='opt'; if(picked){ if(k+1===it.answer)c+=' right'; else if(k+1===picked)c+=' wrong' }
+      return '<button class="'+c+'" '+(picked?'disabled':'onclick="mkPick('+(k+1)+')"')+
+        '><b>'+CIRC[k]+'</b><span>'+esc(t)+'</span></button>' }).join('')+'</div>'+
+    (picked?'<div class="fb '+(picked===it.answer?'ok':'no')+'"><b>'+(picked===it.answer?'✔ 정답':'✘ 오답')+
+       '</b> — 정답 '+CIRC[it.answer-1]+'번'+
+       (it.why?'<div class="small" style="margin-top:6px">'+esc(it.why)+'</div>':'')+
+       '<div class="small" style="margin-top:6px">📖 <a href="#/sec?no='+it.sec+'">'+esc(it.label||'')+'</a> 요약 보기</div></div>'+
+      (it.notes.some(n=>n&&n.trim())
+        ?'<div class="tiny muted" style="margin:11px 0 3px">보기 짚어보기</div>'+
+          it.notes.map((n,k)=>n&&n.trim()
+            ?'<div class="nrule"><div class="nn" style="'+(k+1===it.answer?'color:var(--no)':'')+'">'+CIRC[k]+'</div><div>'+
+              (k+1===it.answer&&it.neg?'<b>이 보기가 틀린 설명입니다.</b> ':'')+esc(n)+'</div></div>':'').join('')
+        :'')
+     :'')+
+  '</div>'+
+  '<div style="height:70px"></div>'+
+  '<div class="sticky-bot"><div class="wrap row">'+
+    '<button class="btn" onclick="mkMv(-1)" '+(M.i?'':'disabled')+'>‹ 이전</button>'+
+    '<span class="tiny muted" style="margin:0 10px">'+st.n+'문항 답함</span><div style="flex:1"></div>'+
+    '<button class="btn '+(picked?'pri':'')+'" onclick="mkMv(1)">'+
+      (M.i===M.items.length-1?'채점하기':'다음 ›')+'</button>'+
+  '</div></div>';
+}
+function mkPick(k){
+  const M=MS(), it=mkItem(M.items[M.i]);
+  M.ans[M.i]=k;
+  // 취약 개념 점수는 필기 자동생성 문제와 같은 규칙으로 반영한다
+  if(k!==it.answer)S.weak[it.sec]=(S.weak[it.sec]||0)+2;
+  else S.weak[it.sec]=Math.max(0,(S.weak[it.sec]||0)-1);
+  save(); drawMock();
+}
+function mkMv(d){
+  const M=MS();
+  if(M.i+d>=M.items.length){ mkResult(); return }
+  if(M.i+d<0)return;
+  M.i+=d; save(); window.scrollTo(0,0); drawMock();
+}
+
+/* ── 결과 ──────────────────────────────────────────────── */
+function mkResult(){
+  const M=MS(), st=mkStat();
+  document.getElementById('hTitle').textContent='모의고사 결과';
+  const bySub={},bySrc={},wrong=[];
+  M.items.forEach((raw,i)=>{
+    const it=mkItem(raw); if(!it)return;
+    const picked=M.ans[i]; if(picked==null)return;
+    const ok=+picked===it.answer;
+    (bySub[it.subjectNo]=bySub[it.subjectNo]||{n:0,ok:0}).n++;
+    (bySrc[it.src]=bySrc[it.src]||{n:0,ok:0}).n++;
+    if(ok){bySub[it.subjectNo].ok++;bySrc[it.src].ok++}
+    else wrong.push({i:i,it:it,picked:picked});
+  });
+  // 실기 시험은 과목당 40점 미만이면 과락
+  const fail=[1,2,3].filter(s=>bySub[s]&&Math.round(bySub[s].ok/bySub[s].n*100)<40);
+  const rate=st.n?Math.round(st.ok/st.n*100):0;
+  const pass=rate>=60&&!fail.length;
+  app().innerHTML=
+  '<h2 class="sec">모의고사 결과</h2>'+
+  '<div class="card" style="border-color:'+(pass?'#245c44':'#6d2b2b')+'">'+
+    '<div class="row"><div style="flex:1"><div style="font-size:26px;font-weight:800;color:'+(pass?'var(--ok)':'var(--no)')+'">'+
+      rate+'점</div><div class="tiny muted">'+st.ok+' / '+st.n+' 정답</div></div>'+
+      '<div style="font-size:17px;font-weight:800;color:'+(pass?'var(--ok)':'var(--no)')+'">'+(pass?'합격':'불합격')+'</div></div>'+
+    '<div class="tiny muted" style="margin-top:8px">합격 기준 : 전체 평균 60점 이상, 과목별 40점 이상</div>'+
+    (fail.length?'<div class="tiny" style="color:var(--no);margin-top:4px">과락 : '+fail.map(s=>s+'과목').join(', ')+'</div>':'')+
+  '</div>'+
+  '<h2 class="sec">과목별</h2><div class="card tight">'+[1,2,3].map(s=>{
+    const b=bySub[s]||{n:0,ok:0}, r=b.n?Math.round(b.ok/b.n*100):0;
+    return '<div class="lrow"><div class="g"><b>'+s+'과목</b><span class="s">'+b.ok+' / '+b.n+' 정답</span>'+
+      '<div class="mini" style="margin-top:5px"><i style="width:'+r+'%;background:'+
+        (r>=60?'var(--ok)':r>=40?'var(--wn)':'var(--no)')+'"></i></div></div>'+
+      '<span class="chip" style="color:'+(r>=60?'var(--ok)':r>=40?'var(--wn)':'var(--no)')+'">'+r+'%</span></div>';
+  }).join('')+'</div>'+
+  '<h2 class="sec">출제 갈래별</h2><div class="card tight">'+['A','B','C'].map(k=>{
+    const b=bySrc[k]; if(!b)return '';
+    const r=Math.round(b.ok/b.n*100);
+    return '<div class="lrow"><div class="g"><b style="color:'+MSRC[k].c+'">'+MSRC[k].k+'</b>'+
+      '<span class="s">'+b.ok+' / '+b.n+' 정답</span></div><span class="chip">'+r+'%</span></div>';
+  }).join('')+'</div>'+
+  (wrong.length?'<h2 class="sec">틀린 문항 '+wrong.length+'개</h2><div class="card tight">'+
+    wrong.map(w=>'<div class="lrow" onclick="mkGo('+w.i+')" style="cursor:pointer">'+
+      '<div class="g"><b>'+(w.i+1)+'번 · '+esc(w.it.label||'')+'</b>'+
+      '<span class="s">'+MSRC[w.it.src].k+' · 내 답 '+CIRC[w.picked-1]+' → 정답 '+CIRC[w.it.answer-1]+'</span></div>'+
+      '<span class="chip">→</span></div>').join('')+'</div>':'')+
+  '<div class="grid2" style="margin-top:14px">'+
+    '<button class="btn" onclick="go(\'#/analysis\')">오답 분석 보기</button>'+
+    '<button class="btn pri" onclick="if(confirm(\'새 60문항으로 다시 만들까요?\'))buildMock()">다시 만들기</button>'+
+  '</div><div style="height:24px"></div>';
+}
+function mkGo(i){ const M=MS(); M.i=i; save(); go('#/mockplay'); }
+function mkClear(){
+  if(!MS()){toast('진행 중인 모의고사가 없습니다');return}
+  if(!confirm('진행 중인 모의고사를 지울까요?'))return;
+  S.mock=null; save(); toast('지웠습니다'); vMock();
+}
+
+/* ══════════════════════════════════════════════════════════
    실기 (Practical) 모듈 — 기출 231문항 (2022-1 ~ 2025-3)
    데이터: data/prac-exam.json · prac-index.json · prac-note.json
    ══════════════════════════════════════════════════════════ */
@@ -2542,7 +2791,7 @@ function drawNav(p){
   const alias={pplay:'pexam',pnv:'pnote',pai:'pwrong',paiplay:'pwrong'};
   const t=alias[p]||p;
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',
-    a.dataset.tab===t||(m==='written'&&((p==='play'&&a.dataset.tab==='exams')
+    a.dataset.tab===t||(m==='written'&&((['play','mock','mockplay'].indexOf(p)>=0&&a.dataset.tab==='exams')
     ||(['sec','glossary','new'].indexOf(p)>=0&&a.dataset.tab==='summary')
     ||(p==='gen'&&a.dataset.tab==='analysis')||(p==='drill'&&a.dataset.tab==='notes')))));
   const mt=document.getElementById('mTog');
