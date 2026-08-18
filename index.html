@@ -372,7 +372,7 @@ function route(){
   window.scrollTo(0,0);
   ({home:vHome,exams:vExams,play:vPlay,summary:vSummary,sec:vSec,glossary:vGloss,
     analysis:vAnalysis,gen:vGen,notes:vNotes,drill:vDrill,new:vNew,settings:vSettings,
-    mock:vMock,mockplay:vMockPlay,cards:vCards,
+    mock:vMock,mockplay:vMockPlay,cards:vCards,final:vFinal,
     phome:vPHome,pexam:vPExam,ptype:vPType,pplay:vPPlay,
     pwrong:vPWrong,pnote:vPNote,pnv:vPNv,pai:vPAI,paiplay:vPAIPlay}[p]||vHome)(a);
 }
@@ -401,6 +401,8 @@ function vHome(){
     직접 제작 모의고사 60문항${S.mock?' — 이어풀기':''}</button></div>
   <div style="margin-top:8px"><button class="btn" style="width:100%" onclick="go('#/cards')">
     자주 틀린 개념 암기 카드</button></div>
+  <div style="margin-top:8px"><button class="btn" style="width:100%" onclick="go('#/final')">
+    시험 전 최종 오답노트 — 마크다운 내보내기</button></div>
   <h2 class="sec">최근 회차</h2>
   ${D.index.exams.slice(0,4).map(e=>examRow(e)).join('')}
   <div style="text-align:center;margin:8px 0"><button class="btn gh sm" onclick="go('#/exams')">전체 12회차 보기 →</button></div>
@@ -488,6 +490,7 @@ async function vPlay(a){
     else if(a.mode==='subject'){list=shuffle(all.filter(q=>q.subjectNo==a.sub)).slice(0,+a.n||30);title=a.sub+'과목 랜덤';}
     else if(a.mode==='unit'){const u=decodeURIComponent(a.unit);list=shuffle(all.filter(q=>q.unit===u));title=u;}
     else if(a.mode==='wrong'){list=all.filter(q=>S.answers[q.qid]&&!S.answers[q.qid].ok);title='틀린 문제 '+list.length+'개';}
+    else if(a.mode==='one'){const q=D.qById[a.qid];list=q?[q]:[];title=a.qid||'문항';}
     else if(a.mode==='sec'){const n=+a.no;list=all.filter(q=>(q.refs||[]).includes(n));title=secTitle(n)+' 관련';}
     else if(a.mode==='weak'){
       const w=weakList(2).slice(0,12).map(x=>x.no);
@@ -856,6 +859,12 @@ async function vAnalysis(){
     (q.options[a.sel-1].refs||[]).slice(0,1).forEach(n=>misread.push({n,id,q,a}))});
   const grp={};misread.forEach(m=>(grp[m.n]=grp[m.n]||[]).push(m));
   app().innerHTML=`
+  <h2 class="sec">시험 전 최종 정리</h2>
+  <div class="card tight"><div class="row">
+    <div style="flex:1"><b>최종 오답노트</b>
+      <div class="tiny muted" style="margin-top:3px">2024~2025년 기출 중 틀린 문항을 개념별로 묶어 마크다운으로 내보냅니다</div></div>
+    <button class="btn sm" style="margin-left:10px" onclick="go('#/final')">만들기</button>
+  </div></div>
   <h2 class="sec">종합</h2>
   <div class="grid3">
     <div class="kpi"><div class="v">${st.n}</div><div class="k">푼 문제</div></div>
@@ -2163,6 +2172,241 @@ function exportCards(){
 }
 
 /* ══════════════════════════════════════════════════════════
+   15. 시험 전 최종 오답노트
+   내가 틀린 기출을 회차 범위·과목으로 좁혀, 개념별로 묶은
+   마크다운 문서로 내보낸다. 지문의 표·코드·그림도 그대로 옮긴다.
+     · finalWrongs()   범위에 맞는 오답 문항을 모은다
+     · finalMd()       마크다운 문서 문자열을 만든다
+     · vFinal()        미리보기 화면
+   ══════════════════════════════════════════════════════════ */
+let FF={from:2024,sub:0};                  // from = 시작 연도 · sub = 0이면 전 과목
+
+// 선택지가 그림·표인 문항은 크롭 이미지 파일명이 q.optionsImage 에 들어 있다
+
+async function finalLoad(){
+  const ids=Object.entries(S.answers).filter(([,a])=>!a.ok).map(([id])=>id);
+  if(ids.length) await Promise.all([...new Set(ids.map(i=>i.slice(0,6)))].map(getExam));
+  return ids.length;
+}
+function finalWrongs(){
+  const out=[];
+  Object.entries(S.answers).forEach(([qid,a])=>{
+    if(a.ok)return;
+    const q=D.qById[qid]; if(!q)return;
+    if(+q.exam.slice(0,4)<FF.from)return;
+    if(FF.sub&&q.subjectNo!==FF.sub)return;
+    out.push({q:q,a:a});
+  });
+  return out.sort((x,y)=> x.q.subjectNo-y.q.subjectNo
+    || String(x.q.unit).localeCompare(String(y.q.unit))
+    || x.q.exam.localeCompare(y.q.exam) || x.q.no-y.q.no);
+}
+// 이 범위에서 푼 문항 수 (정답률 계산용)
+function finalSolved(){
+  let n=0,ok=0;
+  Object.entries(S.answers).forEach(([qid,a])=>{
+    const q=D.qById[qid]; if(!q)return;
+    if(+q.exam.slice(0,4)<FF.from)return;
+    if(FF.sub&&q.subjectNo!==FF.sub)return;
+    n++; if(a.ok)ok++;
+  });
+  return {n:n,ok:ok};
+}
+// 오답에서 걸린 개념을 세어 많이 틀린 순으로
+function finalSecs(list){
+  const m={};
+  list.forEach(w=>{
+    const add=(n,kind)=>{ if(!n)return; m[n]=m[n]||{no:n,n:0,misread:0}; m[n].n++; if(kind)m[n].misread++ };
+    const sel=w.a.sel;
+    (sel&&w.q.options[sel-1]?(w.q.options[sel-1].refs||[]).slice(0,1):[]).forEach(n=>add(n,1));
+    (w.q.refs||[]).slice(0,1).forEach(n=>add(n,0));
+  });
+  return Object.values(m).sort((a,b)=>b.n-a.n||b.misread-a.misread);
+}
+
+/* ── 마크다운 변환 ────────────────────────────────────── */
+const mdEsc=s=>String(s==null?'':s).replace(/\|/g,'\\|');
+function mdBlock(b){
+  if(b.type==='text')  return b.text;
+  if(b.type==='code')  return '```\n'+dedent(b)+'\n```';
+  if(b.type==='note')  return b.lines.map(l=>'> '+l).join('\n');
+  if(b.type==='image') return '![]('+'img/'+b.src+')';
+  if(b.type==='table'){
+    const g=b.grid||[]; if(!g.length)return '';
+    const head=g[0], rest=g.slice(1);
+    return '| '+head.map(mdEsc).join(' | ')+' |\n'+
+           '|'+head.map(()=>'---').join('|')+'|\n'+
+           rest.map(r=>'| '+r.map(mdEsc).join(' | ')+' |').join('\n');
+  }
+  return '';
+}
+function finalMd(){
+  const list=finalWrongs(), st=finalSolved(), secs=finalSecs(list);
+  const range=FF.from>=2025?'2025년':(FF.from+'~2025년');
+  const subName=FF.sub?FF.sub+'과목':'전 과목';
+  const day=new Date().toLocaleDateString('ko-KR');
+  const L=[];
+  L.push('# 시험 전 최종 오답노트');
+  L.push('');
+  L.push('> 정보처리산업기사 필기 · '+range+' 기출 · '+subName+
+         ' · 틀린 문항 **'+list.length+'개** · '+day+' 기준');
+  L.push('');
+  if(!list.length){
+    L.push('이 범위에서 틀린 문항이 없습니다.');
+    return L.join('\n');
+  }
+  // 한눈에
+  L.push('## 한눈에');
+  L.push('');
+  L.push('| 과목 | 푼 문항 | 틀린 문항 | 정답률 |');
+  L.push('|---|---|---|---|');
+  [1,2,3].forEach(s=>{
+    let n=0,w=0;
+    Object.entries(S.answers).forEach(([qid,a])=>{
+      const q=D.qById[qid]; if(!q||q.subjectNo!==s)return;
+      if(+q.exam.slice(0,4)<FF.from)return;
+      if(FF.sub&&q.subjectNo!==FF.sub)return;
+      n++; if(!a.ok)w++;
+    });
+    if(n) L.push('| '+s+'과목 | '+n+' | '+w+' | '+Math.round((n-w)/n*100)+'% |');
+  });
+  L.push('| **합계** | **'+st.n+'** | **'+list.length+'** | **'+
+         (st.n?Math.round(st.ok/st.n*100):0)+'%** |');
+  L.push('');
+  // 자주 틀린 개념
+  if(secs.length){
+    L.push('### 가장 많이 걸린 개념');
+    L.push('');
+    secs.slice(0,10).forEach((x,i)=>{
+      const s=D.sec[x.no];
+      L.push((i+1)+'. **'+(s?s.title:'#'+x.no)+'** — '+x.n+'문항'+
+             (x.misread?' (그중 '+x.misread+'개는 이 개념을 정답이라고 골랐음)':'')+
+             (s?'  \n   '+s.subjectNo+'과목 / '+s.unit:''));
+    });
+    L.push('');
+    // 마지막 점검 체크리스트
+    L.push('### 시험 직전 점검 체크리스트');
+    L.push('');
+    secs.slice(0,12).forEach(x=>{
+      const s=D.sec[x.no]; if(!s)return;
+      const body=(s.body||[]).filter(b=>b.type==='text').map(b=>b.text.replace(/\s+/g,' ').trim())
+                 .filter(b=>b.length>=6)[0]||'';
+      L.push('- [ ] **'+s.title+'** — '+(body.length>110?body.slice(0,110)+'…':body));
+    });
+    L.push('');
+  }
+  // 문항별
+  let curSub=null, curUnit=null, i=0;
+  list.forEach(w=>{
+    const q=w.q, a=w.a;
+    if(q.subjectNo!==curSub){ curSub=q.subjectNo; curUnit=null;
+      L.push(''); L.push('---'); L.push(''); L.push('# '+q.subject); L.push(''); }
+    if(q.unit!==curUnit){ curUnit=q.unit; L.push('## '+q.unit); L.push(''); }
+    i++;
+    const head=(q.stem||[]).filter(b=>b.type==='text')[0];
+    L.push('### '+i+'. '+(head?head.text.replace(/\s+/g,' ').trim():'(지문 없음)'));
+    L.push('');
+    L.push('`'+q.exam+' '+q.no+'번`');
+    L.push('');
+    (q.stem||[]).forEach((b,k)=>{
+      if(k===0&&b.type==='text')return;          // 제목으로 이미 썼다
+      const t=mdBlock(b); if(t){ L.push(t); L.push('') }
+    });
+    const imgOpt=!!q.optionsImage;
+    (q.options||[]).forEach((o,k)=>{
+      const mark=(k+1===q.answer)?' **← 정답**':((k+1===a.sel)?' ← 내가 고른 답':'');
+      const txt=String(o.text||'').trim();
+      L.push(CIRC[k]+' '+(txt||'(그림 보기)')+mark);
+    });
+    if(imgOpt){ L.push(''); L.push('![](img/'+q.optionsImage+')') }
+    L.push('');
+    L.push('- 내 답 **'+(a.sel?CIRC[a.sel-1]:'모르겠음')+'** → 정답 **'+CIRC[q.answer-1]+'**');
+    const nm=n=>D.sec[n]?D.sec[n].title:('#'+n);
+    const selRefs=a.sel&&q.options[a.sel-1]?(q.options[a.sel-1].refs||[]):[];
+    const ansRefs=q.options[q.answer-1]?(q.options[q.answer-1].refs||[]):[];
+    if(selRefs.length&&ansRefs.length&&selRefs[0]===ansRefs[0])
+      // 고른 것과 정답이 같은 개념 — 개념을 헷갈린 게 아니라 그 안의 세부를 놓친 것
+      L.push('- 두 선택지가 같은 「'+nm(selRefs[0])+'」 개념입니다 — 개념을 헷갈린 게 아니라 세부 내용을 놓쳤습니다');
+    else{
+      if(selRefs.length) L.push('- 내가 고른 선택지는 「'+nm(selRefs[0])+'」 개념입니다');
+      if(ansRefs.length&&!isNeg(q)) L.push('- 정답 선택지는 「'+nm(ansRefs[0])+'」 개념입니다');
+    }
+    const rel=(q.refs||[]).slice(0,3).map(n=>D.sec[n]?D.sec[n].title:('#'+n));
+    if(rel.length) L.push('- 관련 요약 : '+rel.join(' · '));
+    if(S.notes[q.qid]) L.push('- 내 메모 : '+S.notes[q.qid].replace(/\n/g,' '));
+    if(S.gaps&&S.gaps[q.qid]) L.push('- 내가 모르겠다고 적은 것 : '+S.gaps[q.qid].replace(/\n/g,' '));
+    L.push('');
+  });
+  L.push('');
+  L.push('---');
+  L.push('');
+  L.push('*그림은 사이트의 `img/` 폴더를 기준으로 걸려 있습니다. 사이트 폴더 안에 두고 열면 함께 보입니다.*');
+  return L.join('\n');
+}
+
+/* ── 화면 ─────────────────────────────────────────────── */
+async function vFinal(){
+  app().innerHTML='<div class="empty">불러오는 중…</div>';
+  await finalLoad();
+  document.getElementById('hTitle').textContent='최종 오답노트';
+  const list=finalWrongs(), st=finalSolved(), secs=finalSecs(list);
+  const ranges=[[2024,'2024~2025년'],[2025,'2025년만'],[2022,'전체 12회차']];
+  app().innerHTML=
+  '<h2 class="sec">시험 전 최종 오답노트</h2>'+
+  '<div class="card tight small">내가 틀린 기출을 <b>개념별로 묶어</b> 마크다운 문서로 내보냅니다. '+
+    '지문의 표·코드·그림, 내가 고른 답과 그 선택지가 어떤 개념인지, 메모까지 함께 담깁니다.</div>'+
+  '<h2 class="sec">범위</h2>'+
+  '<div class="pill">'+ranges.map(r=>
+    '<button class="'+(FF.from===r[0]?'on':'')+'" onclick="FF.from='+r[0]+';vFinal()">'+r[1]+'</button>').join('')+'</div>'+
+  '<div class="pill" style="margin-top:8px">'+[[0,'전 과목'],[1,'1과목'],[2,'2과목'],[3,'3과목']].map(s=>
+    '<button class="'+(FF.sub===s[0]?'on':'')+'" onclick="FF.sub='+s[0]+';vFinal()">'+s[1]+'</button>').join('')+'</div>'+
+  '<div class="grid3" style="margin-top:12px">'+
+    '<div class="kpi"><div class="v">'+st.n+'</div><div class="k">푼 문항</div></div>'+
+    '<div class="kpi"><div class="v" style="color:var(--no)">'+list.length+'</div><div class="k">틀린 문항</div></div>'+
+    '<div class="kpi"><div class="v">'+(st.n?Math.round(st.ok/st.n*100):0)+'%</div><div class="k">정답률</div></div>'+
+  '</div>'+
+  (!list.length
+   ? '<div class="empty">이 범위에서 틀린 문항이 없습니다.<br><span class="tiny">범위를 넓히거나 기출을 더 풀어 보세요.</span></div>'
+   : '<div class="grid2" style="margin-top:12px">'+
+       '<button class="btn pri" onclick="finalDownload()">⤓ 마크다운 내려받기</button>'+
+       '<button class="btn" onclick="finalCopy()">클립보드로 복사</button>'+
+     '</div>'+
+     (secs.length?'<h2 class="sec">가장 많이 걸린 개념</h2><div class="card tight">'+
+       secs.slice(0,8).map(x=>{const s=D.sec[x.no];
+         return '<div class="lrow" onclick="go(\'#/sec?no='+x.no+'\')" style="cursor:pointer">'+
+           '<div class="g"><b>'+esc(s?s.title:'#'+x.no)+'</b>'+
+           '<span class="s">'+(s?s.subjectNo+'과목 / '+esc(s.unit):'')+
+           (x.misread?' · 정답이라고 고른 것 '+x.misread+'회':'')+'</span></div>'+
+           '<span class="chip" style="color:var(--no);border-color:#5c2b2b">'+x.n+'문항</span></div>'}).join('')+
+       '</div>':'')+
+     '<h2 class="sec">담길 문항 '+list.length+'개</h2>'+
+     '<div class="card tight">'+list.map(w=>{
+       const head=(w.q.stem||[]).filter(b=>b.type==='text')[0];
+       return '<div class="lrow" onclick="go(\'#/play?mode=one&qid='+w.q.qid+'\')" style="cursor:pointer">'+
+         '<div class="g"><b>'+esc(w.q.exam)+' '+w.q.no+'번</b>'+
+         '<span class="s">'+esc(head?head.text.replace(/\s+/g,' ').slice(0,54):'(지문 없음)')+'</span></div>'+
+         subjChip(w.q.subjectNo)+'</div>';
+     }).join('')+'</div>')+
+  '<div style="height:24px"></div>';
+}
+function finalDownload(){
+  const md=finalMd();
+  const day=new Date().toISOString().slice(0,10);
+  const a=document.createElement('a');
+  const url=URL.createObjectURL(new Blob([md],{type:'text/markdown;charset=utf-8'}));
+  a.href=url; a.download='최종_오답노트_'+day+'.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+  toast('마크다운 파일을 내려받았습니다');
+}
+function finalCopy(){
+  const md=finalMd(), done=()=>toast('마크다운을 복사했습니다');
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(md).then(done).catch(()=>pCopyFallback(md,done));
+  else pCopyFallback(md,done);
+}
+
+/* ══════════════════════════════════════════════════════════
    실기 (Practical) 모듈 — 기출 231문항 (2022-1 ~ 2025-3)
    데이터: data/prac-exam.json · prac-index.json · prac-note.json
    ══════════════════════════════════════════════════════════ */
@@ -3081,7 +3325,7 @@ function drawNav(p){
     a.dataset.tab===t||(m==='written'&&((['play','mock','mockplay'].indexOf(p)>=0&&a.dataset.tab==='exams')
     ||(p==='cards'&&a.dataset.tab==='notes')
     ||(['sec','glossary','new'].indexOf(p)>=0&&a.dataset.tab==='summary')
-    ||(p==='gen'&&a.dataset.tab==='analysis')||(p==='drill'&&a.dataset.tab==='notes')))));
+    ||(['gen','final'].indexOf(p)>=0&&a.dataset.tab==='analysis')||(p==='drill'&&a.dataset.tab==='notes')))));
   const mt=document.getElementById('mTog');
   if(mt) mt.innerHTML='<button class="'+(m==='written'?'on':'')+'" onclick="setMode(\'written\')">필기</button>'+
                       '<button class="'+(m==='prac'?'on':'')+'" onclick="setMode(\'prac\')">실기</button>';
