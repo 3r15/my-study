@@ -2736,7 +2736,40 @@ function pResetRead(){
    S.prac.aiQ         = [{id:'ai…',ai:1,type,lang,q,code,a,alt[],why,tags[]}]
    S.prac.aiAns[id]   = {ok,v,t,pat}
    ══════════════════════════════════════════════════════════ */
-function PA(){ const P=PS(); P.aiNote=P.aiNote||{}; P.aiQ=P.aiQ||[]; P.aiAns=P.aiAns||{}; return P }
+function PA(){
+  const P=PS();
+  P.aiNote=P.aiNote||{}; P.aiQ=P.aiQ||[]; P.aiAns=P.aiAns||{}; P.aiSet=P.aiSet||[];
+  const old=P.aiQ.filter(q=>!q.set);
+  if(old.length){                       // 세트가 없던 때 저장된 문제들을 한 묶음으로 모아 준다
+    if(!P.aiSet.some(x=>x.id==='set0'))
+      P.aiSet.push({id:'set0',name:'이전에 불러온 문제',desc:pSetDesc(old),
+                    from:old[0].from||'wrong',createdAt:old[0].createdAt||Date.now()});
+    old.forEach(q=>q.set='set0');
+    save();
+  }
+  return P;
+}
+const pSetOf=id=>PA().aiSet.filter(s=>s.id===id)[0]||null;
+const pSetQs=id=>PA().aiQ.filter(q=>q.set===id);
+function pSetDesc(qs){
+  // 세트를 알아볼 수 있게 내용에서 뽑아 쓴다 (불러올 때의 조건이 아니라 실제 문항 기준)
+  const t={}, L={};
+  qs.forEach(q=>{ const k=TLABEL[q.type]||q.type; t[k]=(t[k]||0)+1; if(q.lang)L[q.lang]=(L[q.lang]||0)+1 });
+  const j=o=>Object.keys(o).sort((a,b)=>o[b]-o[a]).map(k=>k+' '+o[k]).join(' · ');
+  const ex=[...new Set(qs.map(q=>q.ref).filter(Boolean).map(r=>r.slice(0,4)))].sort();
+  return j(t)+(Object.keys(L).length?' / '+j(L):'')+
+         (ex.length?' / 본보기 '+(ex.length>1?ex[0]+'~'+ex[ex.length-1]:ex[0]):'');
+}
+function pNewSet(origin,name){
+  const P=PA();
+  let nm=String(name||'').trim().slice(0,40)||'AI 문제';
+  const base=nm;
+  for(let k=2;P.aiSet.some(x=>x.name===nm);k++) nm=base+' ('+k+')';
+  const st={id:'s'+Date.now().toString(36),name:nm,desc:'',
+            from:origin==='exam'?'exam':'wrong',createdAt:Date.now()};
+  P.aiSet.push(st);
+  return st;
+}
 const pRecOf=q=>q&&q.ai?PA().aiAns[q.id]:PS().ans[q.id];
 const pQOf=id=>PD.byId[id]||PA().aiQ.filter(x=>x.id===id)[0];
 
@@ -2896,10 +2929,13 @@ function pImport(kind,origin){
       };
       const arr=kind==='note'?pick('notes','prac-notes','studyNotes'):pick('questions','items','prac-drill','drill');
       if(!arr){ alert('JSON 배열을 찾을 수 없습니다. [{...}] 형식의 .json 파일인지 확인하세요'); return }
-      const res=kind==='note'?{n:pApplyNotes(arr),dup:0}:pApplyQs(arr,origin);
+      const name=String(f.name||'').replace(/\.json$/i,'').slice(0,40);
+      const res=kind==='note'?{n:pApplyNotes(arr),dup:0}:pApplyQs(arr,origin,name);
       const skip=res.dup?'\n기존 문제·기출과 똑같은 '+res.dup+'개는 제외했습니다.':'';
       if(!res.n){ alert('불러올 항목이 없습니다.'+skip); return }
-      save(); toast(res.n+'개를 저장했습니다'+(res.dup?' (중복 '+res.dup+'개 제외)':'')); vPAI({tab:kind==='note'?'note':'gen'});
+      save();
+      toast((res.set?'\u300c'+res.set+'\u300d ':'')+res.n+'개를 저장했습니다'+(res.dup?' (중복 '+res.dup+'개 제외)':''));
+      vPAI({tab:kind==='note'?'note':'gen'});
     };
     r.readAsText(f);
   };
@@ -2927,8 +2963,9 @@ function pApplyNotes(arr){
   });
   return n;
 }
-function pApplyQs(arr,origin){
+function pApplyQs(arr,origin,name){
   const P=PA(); let n=0, dup=0;
+  const st=pNewSet(origin,name);
   // 이미 가진 AI 문제뿐 아니라 기출 원문과 똑같은 것도 거른다.
   // 프롬프트로 "베끼지 말라"고 해도 그대로 옮겨 오는 경우가 있다.
   const seen=new Set(P.aiQ.map(q=>pnK(q.q)+'|'+pnK(q.a)));
@@ -2948,12 +2985,14 @@ function pApplyQs(arr,origin){
       choices:Array.isArray(x.choices)&&x.choices.length?x.choices.map(String):null,
       a:a, alt:pArr(x.alt), why:String(x.why||'').trim(),
       tags:pArr(x.tags), unit:'', partial:false, createdAt:Date.now(),
-      from:origin==='exam'?'exam':'wrong',
+      from:origin==='exam'?'exam':'wrong', set:st.id,
       ref:PD.byId[String(x.ref||'').trim()]?String(x.ref).trim():null
     });
     n++;
   });
-  return {n:n,dup:dup};
+  if(n) st.desc=pSetDesc(pSetQs(st.id));
+  else P.aiSet=P.aiSet.filter(x=>x.id!==st.id);   // 한 문항도 못 들어온 빈 세트는 남기지 않는다
+  return {n:n,dup:dup,set:n?st.name:''};
 }
 function pDelNote(tag){
   if(!confirm('이 AI 요약을 삭제할까요?'))return;
@@ -2961,10 +3000,29 @@ function pDelNote(tag){
 }
 function pClearQs(){
   const P=PA();
-  if(!P.aiQ.length){toast('저장된 유사문제가 없습니다');return}
-  if(!confirm('생성된 유사문제 '+P.aiQ.length+'개를 모두 지울까요?'))return;
-  P.aiQ=[]; P.aiAns={}; save(); toast('삭제했습니다'); vPAI({tab:'gen'});
+  if(!P.aiQ.length){toast('저장된 AI 문제가 없습니다');return}
+  if(!confirm('불러온 AI 문제 '+P.aiSet.length+'세트 '+P.aiQ.length+'개를 모두 지울까요?'))return;
+  P.aiQ=[]; P.aiAns={}; P.aiSet=[]; save(); toast('삭제했습니다'); vPAI({tab:'gen'});
 }
+function pSetRename(id){
+  const P=PA(), st=pSetOf(id); if(!st)return;
+  const v=prompt('세트 이름', st.name);
+  if(v===null)return;
+  let nm=String(v).trim().slice(0,40); if(!nm)return;
+  const base=nm;
+  for(let k=2;P.aiSet.some(x=>x.name===nm&&x.id!==id);k++) nm=base+' ('+k+')';
+  st.name=nm; save(); vPAI({tab:'gen'});
+}
+function pSetDel(id){
+  const P=PA(), st=pSetOf(id); if(!st)return;
+  const qs=pSetQs(id);
+  if(!confirm('\u300c'+st.name+'\u300d 세트의 '+qs.length+'문항과 그 풀이 기록을 지웁니다.\n계속할까요?'))return;
+  qs.forEach(q=>delete P.aiAns[q.id]);
+  P.aiQ=P.aiQ.filter(q=>q.set!==id);
+  P.aiSet=P.aiSet.filter(x=>x.id!==id);
+  save(); toast('\u300c'+st.name+'\u300d 세트를 지웠습니다'); vPAI({tab:'gen'});
+}
+function pSetTog(id){ AQOPEN[id]=!AQOPEN[id]; vPAI({tab:'gen'}) }
 
 /* ── 4) 기출 기반 출제 ────────────────────────────────────
    오답 기록이 없어도 쓸 수 있는 출제기. 조건에 맞는 기출을 골라
@@ -3245,38 +3303,65 @@ function pNoteAiView(){
     '</div>').join(''));
 }
 
-let AQF='all';                              // AI 문제 목록 필터 (전체·기출응용·오답기반)
+let AQF='all';                             // AI 문제 목록 필터 (전체·기출응용·오답기반)
+let AQOPEN={};                             // 펼쳐 놓은 세트
 function pGenView(){
   const P=PA(), A=P.aiAns;
-  const L=P.aiQ.filter(q=>AQF==='all'||(q.from||'wrong')===AQF);
-  const done=L.filter(q=>A[q.id]).length, ok=L.filter(q=>A[q.id]&&A[q.id].ok).length;
-  const nEx=P.aiQ.filter(q=>q.from==='exam').length, nWr=P.aiQ.length-nEx;
-  const tabs=[['all','전체 '+P.aiQ.length],['exam','기출응용 '+nEx],['wrong','오답기반 '+nWr]];
-  return '<div class="card tight"><div class="small">AI가 만든 문제를 기출과 똑같은 화면·채점기로 풉니다. '+
-    '기록은 기출 통계와 섞이지 않고 따로 쌓입니다.'+
+  const sets=P.aiSet.filter(st=>AQF==='all'||(st.from||'wrong')===AQF)
+                    .sort((a,b)=>b.createdAt-a.createdAt);
+  const nEx=P.aiSet.filter(st=>st.from==='exam').length, nWr=P.aiSet.length-nEx;
+  const tabs=[['all','전체 '+P.aiSet.length],['exam','기출응용 '+nEx],['wrong','오답기반 '+nWr]];
+  const head='<div class="card tight"><div class="small">AI가 만든 문제를 기출과 똑같은 화면·채점기로 풉니다. '+
+    '<b>올린 파일 하나가 한 세트</b>가 되어 따로 쌓이고, 세트별로 풀거나 이름을 바꾸거나 지울 수 있습니다.'+
     '<div class="tiny muted" style="margin-top:5px">기출을 본보기로 새 문제를 만들려면 <b>기출 기반 출제</b> 탭, '+
     '내 오답을 겨냥한 유사문제는 아래 버튼을 쓰세요.</div>'+
     '<div class="grid2" style="margin-top:10px">'+
       '<button class="btn sm gh" onclick="pCopyGenPrompt()">내 오답 기반 프롬프트 복사</button>'+
       '<button class="btn sm gh" onclick="pImport(\'gen\',\'wrong\')">prac-drill.json 올리기</button>'+
-    '</div></div>'+
-  (!P.aiQ.length?'<div class="empty">아직 불러온 AI 문제가 없습니다.<br><span class="tiny">기출 기반 출제 탭에서 프롬프트를 복사해 시작하세요.</span></div>'
-   :(nEx&&nWr?'<div class="frow" style="margin-top:12px">'+tabs.map(t=>
-       '<button class="fchip'+(AQF===t[0]?' on':'')+'" onclick="AQF=\''+t[0]+'\';vPAI({tab:\'gen\'})">'+t[1]+'</button>').join('')+'</div>':'')+
-    (!L.length?'<div class="empty">이 분류의 문제가 없습니다.</div>'
-     :'<div class="card tight"><div class="row small"><div style="flex:1"><b>AI 문제 '+L.length+'개</b>'+
-        pBar(done,ok,L.length)+'</div>'+
-        '<button class="btn sm" style="margin-left:10px" onclick="go(\'#/paiplay?from='+AQF+'\')">'+(done?'이어풀기':'풀기')+'</button></div></div>'+
-      '<div class="card tight">'+L.map(q=>{
-        const rec=A[q.id], i=P.aiQ.indexOf(q), r=q.ref?PD.byId[q.ref]:null;
-        return '<div class="lrow" onclick="go(\'#/paiplay?from='+AQF+'&id='+q.id+'\')" style="cursor:pointer">'+
-          '<div class="g"><b>'+(i+1)+'. '+TLABEL[q.type]+(q.lang?' · '+esc(q.lang):'')+
-            (r?' <span class="tiny muted">· '+esc(examTitle(r.exam))+' '+r.no+'번 응용</span>':'')+'</b>'+
-          '<span class="s">'+esc(String(q.q).replace(/\n/g,' ').slice(0,52))+'</span></div>'+
-          (rec?'<span class="chip '+(rec.ok?'ok2':'')+'" style="'+(rec.ok?'':'color:var(--no);border-color:#5c2b2b')+'">'+(rec.ok?'○':'✘')+'</span>'
-              :'<span class="chip">→</span>')+'</div>';
-      }).join('')+'</div>')+
-    '<div class="row" style="margin-top:12px"><button class="btn sm gh" onclick="pClearQs()">AI 문제 전체 삭제</button></div>');
+    '</div></div>';
+  if(!P.aiSet.length)
+    return head+'<div class="empty">아직 불러온 AI 문제가 없습니다.<br>'+
+      '<span class="tiny">기출 기반 출제 탭에서 프롬프트를 복사해 시작하세요.</span></div>';
+  return head+
+  ((nEx&&nWr)?'<div class="frow" style="margin-top:12px">'+tabs.map(t=>
+     '<button class="fchip'+(AQF===t[0]?' on':'')+'" onclick="AQF=\''+t[0]+'\';vPAI({tab:\'gen\'})">'+
+     t[1]+'</button>').join('')+'</div>':'')+
+  (!sets.length?'<div class="empty">이 분류의 세트가 없습니다.</div>'
+   :sets.map(st=>{
+     const qs=pSetQs(st.id);
+     const done=qs.filter(q=>A[q.id]).length, ok=qs.filter(q=>A[q.id]&&A[q.id].ok).length;
+     const open=!!AQOPEN[st.id];
+     return '<div class="card">'+
+       '<div class="qhd">'+
+         '<span class="chip" style="color:var(--pu);border-color:#463a7a">'+
+           (st.from==='exam'?'기출응용':'오답기반')+'</span>'+
+         '<span class="chip">'+qs.length+'문항</span>'+
+         '<div style="flex:1"></div>'+
+         '<span class="tiny muted">'+new Date(st.createdAt).toLocaleDateString('ko-KR')+'</span>'+
+       '</div>'+
+       '<h3 style="margin:9px 0 3px;font-size:16.5px">'+esc(st.name)+'</h3>'+
+       (st.desc?'<div class="tiny muted">'+esc(st.desc)+'</div>':'')+
+       pBar(done,ok,qs.length)+
+       '<div class="row" style="margin-top:11px;gap:7px;flex-wrap:wrap">'+
+         '<button class="btn sm" onclick="go(\'#/paiplay?set='+st.id+'\')">'+
+           (done>=qs.length&&qs.length?'다시 풀기':done?'이어풀기':'풀기')+'</button>'+
+         '<button class="btn sm gh" onclick="pSetTog(\''+st.id+'\')">'+(open?'문항 접기':'문항 보기')+'</button>'+
+         '<div style="flex:1"></div>'+
+         '<button class="btn sm gh" onclick="pSetRename(\''+st.id+'\')">이름</button>'+
+         '<button class="btn sm gh" onclick="pSetDel(\''+st.id+'\')">삭제</button>'+
+       '</div>'+
+       (open?'<div class="card tight" style="margin:11px 0 0">'+qs.map(q=>{
+          const rec=A[q.id], r=q.ref?PD.byId[q.ref]:null;
+          return '<div class="lrow" onclick="go(\'#/paiplay?set='+st.id+'&id='+q.id+'\')" style="cursor:pointer">'+
+            '<div class="g"><b>'+TLABEL[q.type]+(q.lang?' · '+esc(q.lang):'')+
+              (r?' <span class="tiny muted">· '+esc(examTitle(r.exam))+' '+r.no+'번 응용</span>':'')+'</b>'+
+            '<span class="s">'+esc(String(q.q).replace(/\n/g,' ').slice(0,52))+'</span></div>'+
+            (rec?'<span class="chip '+(rec.ok?'ok2':'')+'" style="'+(rec.ok?'':'color:var(--no);border-color:#5c2b2b')+'">'+
+                 (rec.ok?'○':'✘')+'</span>':'<span class="chip">→</span>')+'</div>';
+        }).join('')+'</div>':'')+
+     '</div>';
+   }).join(''))+
+  '<div class="row" style="margin-top:12px"><button class="btn sm gh" onclick="pClearQs()">AI 문제 전체 삭제</button></div>';
 }
 
 /* ── 유사문제 풀이 (기출과 같은 카드·채점을 그대로 씀) ── */
@@ -3284,13 +3369,14 @@ async function vPAIPlay(a){
   if(!await pLoad())return;
   const P=PA(); a=a||{};
   if(!P.aiQ.length){ go('#/pai?tab=make'); return }
-  const kind=a.from&&a.from!=='all'?a.from:null;
-  const list=kind?P.aiQ.filter(q=>(q.from||'wrong')===kind):P.aiQ;
+  const st=a.set?pSetOf(a.set):null;
+  const kind=!st&&a.from&&a.from!=='all'?a.from:null;
+  const list=st?pSetQs(st.id):kind?P.aiQ.filter(q=>(q.from||'wrong')===kind):P.aiQ;
   if(!list.length){ go('#/pai?tab=gen'); return }
   const A=P.aiAns, first=list.findIndex(q=>!A[q.id]);
   const at=a.id?list.findIndex(q=>q.id===a.id):(a.i!=null?+a.i:-1);
   PP={list:list,i:at>=0?at:(first<0?0:first),
-      title:kind==='exam'?'AI 기출응용':kind==='wrong'?'AI 유사문제':'AI 문제',
+      title:st?st.name:kind==='exam'?'AI 기출응용':kind==='wrong'?'AI 유사문제':'AI 문제',
       shown:{},from:'#/pai?tab=gen'};
   list.forEach(q=>{ if(A[q.id])PP.shown[q.id]=1 });
   pDraw();

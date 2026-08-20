@@ -1,6 +1,6 @@
 /* 정처산기 학습 사이트 — 오프라인 캐시
    데이터를 바꾸면 아래 V 값을 올리면 됩니다. */
-const V = "jbsg-v7";
+const V = "jbsg-v8";
 const SHELL = ['./', 'index.html', 'data/index.json', 'data/summary.json'];
 
 self.addEventListener('install', e => {
